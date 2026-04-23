@@ -1,0 +1,21 @@
+﻿{
+    "modListVersion": 2,
+    "modList": [{
+        "modid": "${modId}",
+        "name": "${modName}",
+        "description": "为 AE2 1.7.10 / GTNH 添加可右键配置的通配加工样板，支持名称匹配、矿辞匹配、规则预览、去重选择与 GT/ME 接口兼容扩展。",
+        "version": "${modVersion}",
+        "mcversion": "${minecraftVersion}",
+        "url": "",
+        "updateUrl": "",
+        "authorList": ["OpenAI", "LeoDreamer2004"],
+        "credits": "",
+        "logoFile": "",
+        "screenshots": [],
+        "parent": "",
+        "requiredMods": ["appliedenergistics2", "gregtech", "modularui"],
+        "dependencies": ["required-after:appliedenergistics2", "required-after:gregtech", "required-after:modularui"],
+        "dependants": [],
+        "useDependencyInformation": false
+    }]
+}
