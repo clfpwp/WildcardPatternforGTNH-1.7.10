@@ -20,18 +20,19 @@ public class WildcardPatternEntry {
     private static final String KEY_DISPLAY = "Display";
     private static final String KEY_MATCHER = "Matcher";
     private static final String KEY_AMOUNT = "Amount";
+    public static final long MAX_AMOUNT = 2_100_000_000L;
 
     private boolean oreDictMode;
     private ItemStack stack;
     private ItemStack displayStack;
     private String matcher;
-    private int amount;
+    private long amount;
 
     public static WildcardPatternEntry fromStack(ItemStack stack) {
         WildcardPatternEntry entry = new WildcardPatternEntry();
         entry.stack = stack == null ? null : stack.copy();
         entry.displayStack = stack == null ? null : stack.copy();
-        entry.amount = stack == null ? 1 : Math.max(1, stack.stackSize);
+        entry.amount = stack == null ? 1L : Math.max(1L, stack.stackSize);
         entry.oreDictMode = false;
         entry.matcher = stack == null ? "" : stack.getDisplayName();
         return entry;
@@ -49,7 +50,7 @@ public class WildcardPatternEntry {
         WildcardPatternEntry entry = new WildcardPatternEntry();
         entry.oreDictMode = tag.getBoolean(KEY_MODE);
         entry.matcher = tag.hasKey(KEY_MATCHER) ? tag.getString(KEY_MATCHER) : tag.getString("Prefix");
-        entry.amount = Math.max(1, tag.getInteger(KEY_AMOUNT));
+        entry.amount = Math.max(1L, tag.getLong(KEY_AMOUNT));
         if (tag.hasKey(KEY_STACK)) {
             entry.stack = ItemStack.loadItemStackFromNBT(tag.getCompoundTag(KEY_STACK));
         }
@@ -69,7 +70,7 @@ public class WildcardPatternEntry {
         NBTTagCompound tag = new NBTTagCompound();
         tag.setBoolean(KEY_MODE, this.oreDictMode);
         tag.setString(KEY_MATCHER, getMatcher());
-        tag.setInteger(KEY_AMOUNT, getAmount());
+        tag.setLong(KEY_AMOUNT, getAmountLong());
         if (this.stack != null) {
             NBTTagCompound stackTag = new NBTTagCompound();
             this.stack.writeToNBT(stackTag);
@@ -100,7 +101,7 @@ public class WildcardPatternEntry {
             return null;
         }
         ItemStack preferred = getPreferredOreStack(configStack, prefix, material);
-        return preferred != null ? preferred : GTOreDictUnificator.get(prefix, material, getAmount());
+        return preferred != null ? preferred : GTOreDictUnificator.get(prefix, material, getClampedAmount());
     }
 
     private ItemStack createNameMatchedStack(Materials material, ItemStack configStack) {
@@ -110,24 +111,24 @@ public class WildcardPatternEntry {
 
         ItemStack preferred = tryCreatePreferredStack(material, configStack);
         if (preferred != null && matchesName(preferred.getDisplayName(), this.matcher)) {
-            preferred.stackSize = getAmount();
+            preferred.stackSize = getClampedAmount();
             return preferred;
         }
 
         for (OrePrefixes prefix : OrePrefixes.values()) {
             ItemStack candidate = getPreferredOreStack(configStack, prefix, material);
             if (candidate == null) {
-                candidate = GTOreDictUnificator.get(prefix, material, getAmount());
+                candidate = GTOreDictUnificator.get(prefix, material, getClampedAmount());
             }
             if (candidate != null && matchesName(candidate.getDisplayName(), this.matcher)) {
-                candidate.stackSize = getAmount();
+                candidate.stackSize = getClampedAmount();
                 return candidate;
             }
         }
 
         if (this.stack != null && matchesName(this.stack.getDisplayName(), this.matcher)) {
             ItemStack copy = this.stack.copy();
-            copy.stackSize = getAmount();
+            copy.stackSize = getClampedAmount();
             return copy;
         }
         return null;
@@ -137,7 +138,7 @@ public class WildcardPatternEntry {
         ItemData association = getDisplayAssociation();
         if (association != null && association.hasValidPrefixMaterialData()) {
             ItemStack preferred = getPreferredOreStack(configStack, association.mPrefix, material);
-            return preferred != null ? preferred : GTOreDictUnificator.get(association.mPrefix, material, getAmount());
+            return preferred != null ? preferred : GTOreDictUnificator.get(association.mPrefix, material, getClampedAmount());
         }
         return null;
     }
@@ -163,7 +164,7 @@ public class WildcardPatternEntry {
 
     public void convertToItem() {
         this.oreDictMode = false;
-        if ((this.matcher == null || this.matcher.trim().isEmpty()) && this.displayStack != null) {
+        if (this.displayStack != null) {
             this.matcher = this.displayStack.getDisplayName();
         }
     }
@@ -171,12 +172,12 @@ public class WildcardPatternEntry {
     public ItemStack getDisplayStack() {
         if (this.displayStack != null) {
             ItemStack copy = this.displayStack.copy();
-            copy.stackSize = getAmount();
+            copy.stackSize = getClampedAmount();
             return copy;
         }
         if (this.stack != null) {
             ItemStack copy = this.stack.copy();
-            copy.stackSize = getAmount();
+            copy.stackSize = getClampedAmount();
             return copy;
         }
         return null;
@@ -218,25 +219,38 @@ public class WildcardPatternEntry {
     }
 
     public int getAmount() {
-        return Math.max(1, this.amount);
+        return getClampedAmount();
+    }
+
+    public long getAmountLong() {
+        return Math.max(1L, Math.min(MAX_AMOUNT, this.amount));
     }
 
     public void setAmount(int amount) {
-        this.amount = Math.max(1, amount);
+        setAmount((long) amount);
+    }
+
+    public void setAmount(long amount) {
+        this.amount = Math.max(1L, Math.min(MAX_AMOUNT, amount));
     }
 
     public void multiplyAmount(int factor) {
         if (factor <= 1) {
             return;
         }
-        this.amount = Math.max(1, Math.min(Integer.MAX_VALUE, (int) Math.min(Integer.MAX_VALUE, (long) getAmount() * factor)));
+        long current = getAmountLong();
+        if (current > MAX_AMOUNT / factor) {
+            this.amount = MAX_AMOUNT;
+            return;
+        }
+        setAmount(current * factor);
     }
 
     public void divideAmount(int divisor) {
         if (divisor <= 1) {
             return;
         }
-        this.amount = Math.max(1, getAmount() / divisor);
+        this.amount = Math.max(1L, getAmountLong() / divisor);
     }
 
     public void setStack(ItemStack stack) {
@@ -361,8 +375,12 @@ public class WildcardPatternEntry {
             return null;
         }
         ItemStack copy = preferred.copy();
-        copy.stackSize = getAmount();
+        copy.stackSize = getClampedAmount();
         return copy;
+    }
+
+    private int getClampedAmount() {
+        return (int) Math.max(1L, Math.min((long) Integer.MAX_VALUE, getAmountLong()));
     }
 
     private static ItemStack getDefaultPreferredOreStack(String oreName) {

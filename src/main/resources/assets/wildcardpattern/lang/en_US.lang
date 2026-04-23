@@ -44,3 +44,5 @@ gui.wildcardpattern.dedupe=Dedupe
 gui.wildcardpattern.dedupe_page=Dedupe Choices
 gui.wildcardpattern.dedupe_hint=For duplicated ore tags, GT items are preferred by default; you can search and switch
 gui.wildcardpattern.dedupe_cycle=Cycle
+gui.wildcardpattern.dedupe_input=Input
+gui.wildcardpattern.dedupe_output=Output

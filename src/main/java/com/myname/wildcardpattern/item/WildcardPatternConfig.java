@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import gregtech.api.enums.Materials;
 import net.minecraft.item.ItemStack;
@@ -122,7 +123,7 @@ public final class WildcardPatternConfig {
             return false;
         }
 
-        if (parseList(getGlobalExcludeMaterials(stack)).contains(materialName)) {
+        if (matchesList(getGlobalExcludeMaterials(stack), materialName)) {
             return false;
         }
 
@@ -131,7 +132,7 @@ public final class WildcardPatternConfig {
             return false;
         }
 
-        return !parseList(getRuleExcludeMaterials(stack, ruleIndex)).contains(materialName);
+        return !matchesList(getRuleExcludeMaterials(stack, ruleIndex), materialName);
     }
 
     public static List<String> getRuleIncludeList(ItemStack stack, int size) {
@@ -214,6 +215,46 @@ public final class WildcardPatternConfig {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
+
+    private static boolean matchesList(String value, String materialName) {
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+        String normalizedMaterial = normalizeMaterialName(materialName);
+        for (String part : value.split("[,;，；\\s]+")) {
+            String token = normalizeMaterialName(part);
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (matchesToken(token, normalizedMaterial)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesToken(String token, String materialName) {
+        if (token.indexOf('*') >= 0 || token.indexOf('?') >= 0) {
+            return Pattern.compile(wildcardToRegex(token)).matcher(materialName).matches();
+        }
+        return token.equals(materialName);
+    }
+
+    private static String wildcardToRegex(String pattern) {
+        StringBuilder builder = new StringBuilder("^");
+        for (int index = 0; index < pattern.length(); index++) {
+            char value = pattern.charAt(index);
+            if (value == '*') {
+                builder.append(".*");
+            } else if (value == '?') {
+                builder.append('.');
+            } else {
+                builder.append(Pattern.quote(String.valueOf(value)));
+            }
+        }
+        builder.append('$');
+        return builder.toString();
+    }
     private static String normalizePreferenceKey(String value) {
         return value == null ? "" : value.trim();
     }
@@ -233,3 +274,5 @@ public final class WildcardPatternConfig {
         return stack.getTagCompound();
     }
 }
+
+

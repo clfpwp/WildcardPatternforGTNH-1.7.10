@@ -147,21 +147,21 @@ public final class WildcardPatternState {
         boolean found = false;
         for (WildcardPatternEntry entry : getInputEntries(stack)) {
             if (entry != null && !entry.isEmpty()) {
-                result = Math.min(result, getMaxBits(entry.getAmount(), dividing));
+                result = Math.min(result, getMaxBits(entry.getAmountLong(), dividing));
                 found = true;
             }
         }
         for (WildcardPatternEntry entry : getOutputEntries(stack)) {
             if (entry != null && !entry.isEmpty()) {
-                result = Math.min(result, getMaxBits(entry.getAmount(), dividing));
+                result = Math.min(result, getMaxBits(entry.getAmountLong(), dividing));
                 found = true;
             }
         }
         return found ? result : 0;
     }
 
-    private static int getMaxBits(int amount, boolean dividing) {
-        int value = Math.max(1, amount);
+    private static int getMaxBits(long amount, boolean dividing) {
+        long value = Math.max(1L, amount);
         int bits = 0;
         if (dividing) {
             while ((value & 1) == 0) {
@@ -169,7 +169,7 @@ public final class WildcardPatternState {
                 bits++;
             }
         } else {
-            while (value > 0 && value < (1 << 30)) {
+            while (value > 0 && value <= WildcardPatternEntry.MAX_AMOUNT / 2L) {
                 value <<= 1;
                 bits++;
             }

@@ -18,6 +18,7 @@ import com.gtnewhorizons.modularui.common.widget.TextWidget;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
 import appeng.api.networking.crafting.ICraftingPatternDetails;
+import com.myname.wildcardpattern.compat.NechSearchCompat;
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import com.myname.wildcardpattern.item.WildcardPatternConfig;
@@ -40,9 +41,10 @@ public final class WildcardPatternWindow {
     private static final int GUI_HEIGHT = 292;
     private static final int RULE_ROWS = 9;
     private static final int PREVIEW_LINES = 12;
-    private static final int ENTRY_TEXT_WIDTH = 54;
+    private static final int DEDUPE_LINES = 4;
+    private static final int ENTRY_TEXT_WIDTH = 50;
     private static final int ENTRY_MODE_X = ENTRY_TEXT_WIDTH + 3;
-    private static final int ENTRY_MODE_WIDTH = 30;
+    private static final int ENTRY_MODE_WIDTH = 34;
     private static final int ENTRY_AMOUNT_X = ENTRY_MODE_X + ENTRY_MODE_WIDTH + 3;
     private static final int ENTRY_AMOUNT_WIDTH = 40;
 
@@ -56,6 +58,8 @@ public final class WildcardPatternWindow {
     private static final int FIELD_TEXT_COLOR = 0xFFFFFFFF;
     private static final int BUTTON_TEXT_COLOR = 0xFF222222;
     private static final int PANEL_SHADOW_COLOR = 0x22000000;
+    private static final int CARD_FILL_COLOR = 0x66FFFFFF;
+    private static final int CARD_SHADOW_COLOR = 0x16000000;
 
     private WildcardPatternWindow() {}
 
@@ -118,7 +122,7 @@ public final class WildcardPatternWindow {
             for (EntryCellRefs ref : refs) {
                 ref.clear();
             }
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         addMainWidget(builder, state, clearAll);
 
@@ -188,7 +192,7 @@ public final class WildcardPatternWindow {
         filter.setSize(22, 15);
         filter.setOnClick((clickData, widget) -> {
             state.selectedRule = row;
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         addMainWidget(builder, state, filter);
 
@@ -216,7 +220,7 @@ public final class WildcardPatternWindow {
             state.ruleExcludes.set(row, "");
             input.clear();
             output.clear();
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         addMainWidget(builder, state, clear);
     }
@@ -228,6 +232,7 @@ public final class WildcardPatternWindow {
         int index,
         int x,
         int y) {
+        final boolean[] suppressNextSetter = { false };
         final WildcardEntryDropTextField[] textRef = new WildcardEntryDropTextField[1];
         WildcardEntryDropTextField text = new WildcardEntryDropTextField(stack -> {
             WildcardPatternEntry next = WildcardPatternEntry.fromStack(stack);
@@ -237,18 +242,22 @@ public final class WildcardPatternWindow {
                 next.convertToItem();
             }
             entries.set(index, next);
-            state.rebuildPreview();
+            state.refreshActivePage();
             if (textRef[0] != null) {
+                suppressNextSetter[0] = true;
                 textRef[0].setText(trim(next.getLabel(), 11));
                 textRef[0].markForUpdate();
             }
         });
         textRef[0] = text;
         text.setSynced(false, false);
-        text.setGetter(() -> entries.get(index).isEmpty() ? "" : trim(entries.get(index).getLabel(), 11));
         text.setSetter(value -> {
+            if (suppressNextSetter[0]) {
+                suppressNextSetter[0] = false;
+                return;
+            }
             entries.get(index).setMatcher(value);
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         text.setText(entries.get(index).isEmpty() ? "" : trim(entries.get(index).getLabel(), 11));
         text.setTextColor(FIELD_TEXT_COLOR);
@@ -267,26 +276,19 @@ public final class WildcardPatternWindow {
         mode.setPos(x + ENTRY_MODE_X, y);
         mode.setSize(ENTRY_MODE_WIDTH, 16);
         mode.setOnClick((clickData, widget) -> {
-            WildcardPatternEntry entry = entries.get(index);
-            if (entry.isOreDict()) {
-                entry.convertToItem();
-            } else {
-                entry.convertToOreDict();
+            if (clickData.mouseButton == 0 && !clickData.doubleClick) {
+                switchEntryMode(entries, index, text, state, suppressNextSetter);
             }
-            text.setText(trim(entry.getLabel(), 11));
-            text.markForUpdate();
-            state.rebuildPreview();
         });
         addMainWidget(builder, state, mode);
 
         TextFieldWidget amount = new TextFieldWidget();
         amount.setSynced(false, false);
-        amount.setGetter(() -> formatAmount(entries.get(index).getAmount()));
         amount.setSetter(value -> {
             entries.get(index).setAmount(parseAmount(value));
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
-        amount.setText(formatAmount(entries.get(index).getAmount()));
+        amount.setText(formatAmount(entries.get(index).getAmountLong()));
         amount.setTextColor(FIELD_TEXT_COLOR);
         amount.setBackground(WildcardPatternWindow::fieldBackground);
         amount.setTextAlignment(Alignment.Center);
@@ -295,7 +297,25 @@ public final class WildcardPatternWindow {
         amount.setSize(ENTRY_AMOUNT_WIDTH, 16);
         addMainWidget(builder, state, amount);
 
-        return new EntryCellRefs(text, amount, () -> formatAmount(entries.get(index).getAmount()));
+        return new EntryCellRefs(text, amount, () -> formatAmount(entries.get(index).getAmountLong()));
+    }
+
+    private static void switchEntryMode(
+        List<WildcardPatternEntry> entries,
+        int index,
+        WildcardEntryDropTextField text,
+        WindowState state,
+        boolean[] suppressNextSetter) {
+        WildcardPatternEntry entry = entries.get(index);
+        if (entry.isOreDict()) {
+            entry.convertToItem();
+        } else {
+            entry.convertToOreDict();
+        }
+        suppressNextSetter[0] = true;
+        text.setText(trim(entry.getLabel(), 11));
+        text.markForUpdate();
+        state.refreshActivePage();
     }
 
     private static void addGlobalExclude(ModularWindow.Builder builder, WindowState state, int x, int y) {
@@ -304,14 +324,14 @@ public final class WildcardPatternWindow {
 
         TextFieldWidget field = new WildcardFilterDropTextField(value -> {
             state.globalExclude = value == null ? "" : value;
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         field.setSynced(false, false);
         field.setGetter(() -> state.globalExclude);
         field.setText(state.globalExclude);
         field.setSetter(value -> {
             state.globalExclude = value == null ? "" : value;
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         field.setTextColor(FIELD_TEXT_COLOR);
         field.setBackground(WildcardPatternWindow::fieldBackground);
@@ -332,13 +352,13 @@ public final class WildcardPatternWindow {
 
         TextFieldWidget field = new WildcardFilterDropTextField(value -> {
             state.ruleExcludes.set(state.selectedRule, value == null ? "" : value);
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         field.setSynced(false, false);
         field.setGetter(() -> state.ruleExcludes.get(state.selectedRule));
         field.setSetter(value -> {
             state.ruleExcludes.set(state.selectedRule, value == null ? "" : value);
-            state.rebuildPreview();
+            state.refreshActivePage();
         });
         field.setText(state.ruleExcludes.get(state.selectedRule));
         field.setTextColor(FIELD_TEXT_COLOR);
@@ -367,7 +387,7 @@ public final class WildcardPatternWindow {
             value -> {
                 state.previewSearch = value == null ? "" : value;
                 state.previewPageIndex = 0;
-                state.rebuildPreview();
+                state.refreshActivePage();
             },
             192,
             34,
@@ -383,7 +403,7 @@ public final class WildcardPatternWindow {
                 value -> {
                     state.ruleIncludes.set(state.previewRule, value == null ? "" : value);
                     state.previewPageIndex = 0;
-                    state.rebuildPreview();
+                    state.refreshActivePage();
                 },
                 18,
                 58,
@@ -398,7 +418,7 @@ public final class WildcardPatternWindow {
                 value -> {
                     state.ruleExcludes.set(state.previewRule, value == null ? "" : value);
                     state.previewPageIndex = 0;
-                    state.rebuildPreview();
+                    state.refreshActivePage();
                 },
                 226,
                 58,
@@ -492,39 +512,102 @@ public final class WildcardPatternWindow {
             76,
             250);
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < DEDUPE_LINES; i++) {
             final int lineIndex = i;
-            TextWidget oreName = new TextWidget("");
-            oreName.setPos(18, 102 + i * 16);
-            oreName.setStringSupplier(() -> {
-                int absolute = state.dedupePageIndex * 10 + lineIndex;
-                return absolute < state.dedupeOreNames.size()
-                    ? EnumChatFormatting.BLACK + state.dedupeOreNames.get(absolute)
+            int rowY = 98 + i * 39;
+            addDedupeCard(builder, state, 14, rowY - 2, 418, 33);
+
+            TextWidget rule = new TextWidget("");
+            rule.setPos(18, rowY + 2);
+            rule.setStringSupplier(() -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                return absolute < state.dedupeRows.size()
+                    ? EnumChatFormatting.BLACK + "R" + (state.dedupeRows.get(absolute).rule + 1)
                     : "";
             });
-            addDedupeWidget(builder, state, oreName);
+            addDedupeWidget(builder, state, rule);
 
-            TextWidget selected = new TextWidget("");
-            selected.setPos(150, 102 + i * 16);
-            selected.setStringSupplier(() -> {
-                int absolute = state.dedupePageIndex * 10 + lineIndex;
-                if (absolute >= state.dedupeOreNames.size()) {
-                    return "";
-                }
-                return EnumChatFormatting.DARK_GRAY + trim(state.getSelectedDedupeLabel(state.dedupeOreNames.get(absolute)), 24);
+            TextWidget inputOre = new TextWidget("");
+            inputOre.setPos(42, rowY + 2);
+            inputOre.setScale(0.74f);
+            inputOre.setStringSupplier(() -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                return absolute < state.dedupeRows.size()
+                    ? EnumChatFormatting.BLACK + trimMiddle(state.dedupeRows.get(absolute).getInputLine(), 26)
+                    : "";
             });
-            addDedupeWidget(builder, state, selected);
+            addDedupeWidget(builder, state, inputOre);
 
-            ButtonWidget cycle = button("gui.wildcardpattern.dedupe_cycle");
-            cycle.setPos(360, 98 + i * 16);
-            cycle.setSize(64, 14);
-            cycle.setOnClick((clickData, widget) -> {
-                int absolute = state.dedupePageIndex * 10 + lineIndex;
-                if (absolute < state.dedupeOreNames.size()) {
-                    state.cycleDedupeChoice(state.dedupeOreNames.get(absolute));
+            TextWidget topArrow = new TextWidget(EnumChatFormatting.BLACK + "->");
+            topArrow.setPos(174, rowY + 2);
+            addDedupeWidget(builder, state, topArrow);
+
+            TextWidget outputOre = new TextWidget("");
+            outputOre.setPos(194, rowY + 2);
+            outputOre.setScale(0.74f);
+            outputOre.setStringSupplier(() -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                return absolute < state.dedupeRows.size()
+                    ? EnumChatFormatting.BLACK + trimMiddle(state.dedupeRows.get(absolute).getOutputLine(), 26)
+                    : "";
+            });
+            addDedupeWidget(builder, state, outputOre);
+
+            TextWidget inputChoice = new TextWidget("");
+            inputChoice.setPos(42, rowY + 17);
+            inputChoice.setScale(0.7f);
+            inputChoice.setStringSupplier(() -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                return absolute < state.dedupeRows.size()
+                    ? EnumChatFormatting.DARK_GRAY
+                        + trimMiddle(state.getSelectedDedupeLabel(state.dedupeRows.get(absolute).inputOreName), 28)
+                    : "";
+            });
+            addDedupeWidget(builder, state, inputChoice);
+
+            TextWidget bottomArrow = new TextWidget(EnumChatFormatting.DARK_GRAY + "->");
+            bottomArrow.setPos(174, rowY + 17);
+            addDedupeWidget(builder, state, bottomArrow);
+
+            TextWidget outputChoice = new TextWidget("");
+            outputChoice.setPos(194, rowY + 17);
+            outputChoice.setScale(0.7f);
+            outputChoice.setStringSupplier(() -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                return absolute < state.dedupeRows.size()
+                    ? EnumChatFormatting.DARK_GRAY
+                        + trimMiddle(state.getSelectedDedupeLabel(state.dedupeRows.get(absolute).outputOreName), 28)
+                    : "";
+            });
+            addDedupeWidget(builder, state, outputChoice);
+
+            ButtonWidget cycleInput = button("gui.wildcardpattern.dedupe_input");
+            cycleInput.setPos(322, rowY + 3);
+            cycleInput.setSize(50, 18);
+            cycleInput.setOnClick((clickData, widget) -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                if (absolute < state.dedupeRows.size()) {
+                    state.cycleDedupeChoice(state.dedupeRows.get(absolute).inputOreName);
                 }
             });
-            addDedupeWidget(builder, state, cycle);
+            cycleInput.setEnabled(widget -> state.dedupePage
+                && state.getDedupeRow(lineIndex) != null
+                && state.getDedupeRow(lineIndex).inputDuplicate);
+            addDedupeWidget(builder, state, cycleInput);
+
+            ButtonWidget cycleOutput = button("gui.wildcardpattern.dedupe_output");
+            cycleOutput.setPos(378, rowY + 3);
+            cycleOutput.setSize(50, 18);
+            cycleOutput.setOnClick((clickData, widget) -> {
+                int absolute = state.dedupePageIndex * DEDUPE_LINES + lineIndex;
+                if (absolute < state.dedupeRows.size()) {
+                    state.cycleDedupeChoice(state.dedupeRows.get(absolute).outputOreName);
+                }
+            });
+            cycleOutput.setEnabled(widget -> state.dedupePage
+                && state.getDedupeRow(lineIndex) != null
+                && state.getDedupeRow(lineIndex).outputDuplicate);
+            addDedupeWidget(builder, state, cycleOutput);
         }
 
         ButtonWidget back = button("gui.wildcardpattern.back");
@@ -621,9 +704,10 @@ public final class WildcardPatternWindow {
     }
 
     private static ButtonWidget button(Supplier<IDrawable[]> backgroundSupplier) {
-        ButtonWidget button = new ButtonWidget();
+        ButtonWidget button = new AnimatedButtonWidget();
         button.setSynced(false, false);
         button.setBackground(backgroundSupplier::get);
+        button.setPlayClickSound(true);
         return button;
     }
 
@@ -709,6 +793,13 @@ public final class WildcardPatternWindow {
         drawRect(x + 3, y + 3, Math.max(0, width - 6), Math.max(0, height - 6), PANEL_COLOR, partialTicks);
     }
 
+    private static void drawDedupeCard(float x, float y, float width, float height, float partialTicks) {
+        drawRect(x, y, width, height, PANEL_LINE_LIGHT, partialTicks);
+        drawRect(x, y, width, 1, 0xFF8B8B8B, partialTicks);
+        drawRect(x, y, 1, height, 0xFF8B8B8B, partialTicks);
+        drawRect(x + 1, y + 1, Math.max(0, width - 2), Math.max(0, height - 2), CARD_FILL_COLOR, partialTicks);
+    }
+
     private static void drawRect(float x, float y, float width, float height, int color, float partialTicks) {
         if (width <= 0 || height <= 0) {
             return;
@@ -767,6 +858,26 @@ public final class WildcardPatternWindow {
         addDedupeWidget(builder, state, fill);
     }
 
+    private static void addDedupeCard(
+        ModularWindow.Builder builder,
+        WindowState state,
+        int x,
+        int y,
+        int width,
+        int height) {
+        DrawableWidget shadow = new DrawableWidget();
+        shadow.setPos(x + 1, y + 1);
+        shadow.setSize(width, height);
+        shadow.setDrawable(new Rectangle().setColor(CARD_SHADOW_COLOR));
+        addDedupeWidget(builder, state, shadow);
+
+        DrawableWidget border = new DrawableWidget();
+        border.setPos(x, y);
+        border.setSize(width, height);
+        border.setDrawable(WildcardPatternWindow::drawDedupeCard);
+        addDedupeWidget(builder, state, border);
+    }
+
     private static void addDedupeSeparator(
         ModularWindow.Builder builder,
         WindowState state,
@@ -808,9 +919,22 @@ public final class WildcardPatternWindow {
             if (builder.length() > 0) {
                 builder.append(" + ");
             }
-            builder.append(stack.getItemStack().stackSize).append('x').append(stack.getItemStack().getDisplayName());
+            builder.append(formatStackSize(stack.getStackSize())).append('x').append(stack.getItemStack().getDisplayName());
         }
         return builder.toString();
+    }
+
+    private static String formatStackSize(long amount) {
+        if (amount >= 100_000_000L) {
+            return formatCompact(amount, 1_000_000_000L, "g");
+        }
+        if (amount >= 1_000_000L) {
+            return formatCompact(amount, 1_000_000L, "m");
+        }
+        if (amount >= 1_000L) {
+            return formatCompact(amount, 1_000L, "k");
+        }
+        return String.valueOf(Math.max(0L, amount));
     }
 
     private static void ensureSize(List<WildcardPatternEntry> entries, int size) {
@@ -841,7 +965,22 @@ public final class WildcardPatternWindow {
         return text.length() <= max ? text : text.substring(0, Math.max(0, max - 3)) + "...";
     }
 
-    private static String formatAmount(int amount) {
+    private static String trimMiddle(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        if (text.length() <= max || max <= 3) {
+            return trim(text, max);
+        }
+        int head = (max - 3) / 2;
+        int tail = max - 3 - head;
+        return text.substring(0, head) + "..." + text.substring(text.length() - tail);
+    }
+
+    private static String formatAmount(long amount) {
+        if (amount >= 100_000_000) {
+            return formatCompact(amount, 1_000_000_000L, "g");
+        }
         if (amount >= 1_000_000) {
             return formatCompact(amount, 1_000_000, "m");
         }
@@ -851,7 +990,7 @@ public final class WildcardPatternWindow {
         return String.valueOf(Math.max(1, amount));
     }
 
-    private static String formatCompact(int amount, int unit, String suffix) {
+    private static String formatCompact(long amount, long unit, String suffix) {
         if (amount % unit == 0) {
             return (amount / unit) + suffix;
         }
@@ -862,17 +1001,20 @@ public final class WildcardPatternWindow {
         return (scaled / 10) + "." + (scaled % 10) + suffix;
     }
 
-    private static int parseAmount(String value) {
+    private static long parseAmount(String value) {
         String token = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
         if (token.isEmpty()) {
             return 1;
         }
-        int multiplier = 1;
+        long multiplier = 1L;
         if (token.endsWith("k")) {
-            multiplier = 1_000;
+            multiplier = 1_000L;
             token = token.substring(0, token.length() - 1).trim();
         } else if (token.endsWith("m")) {
-            multiplier = 1_000_000;
+            multiplier = 1_000_000L;
+            token = token.substring(0, token.length() - 1).trim();
+        } else if (token.endsWith("g")) {
+            multiplier = 1_000_000_000L;
             token = token.substring(0, token.length() - 1).trim();
         }
         try {
@@ -881,7 +1023,7 @@ public final class WildcardPatternWindow {
                 return 1;
             }
             long result = Math.round(parsed * multiplier);
-            return (int) Math.max(1L, Math.min((long) Integer.MAX_VALUE, result));
+            return Math.max(1L, Math.min(WildcardPatternEntry.MAX_AMOUNT, result));
         } catch (NumberFormatException ignored) {
             return 1;
         }
@@ -931,6 +1073,85 @@ public final class WildcardPatternWindow {
         }
     }
 
+    private static final class AnimatedButtonWidget extends ButtonWidget {
+
+        @Override
+        public IDrawable[] getBackground() {
+            IDrawable[] base = super.getBackground();
+            if (!isHovering()) {
+                return base;
+            }
+            IDrawable highlight = new Rectangle().setColor(0x332A62A5);
+            if (base == null || base.length == 0) {
+                return new IDrawable[] { highlight };
+            }
+            IDrawable[] result = new IDrawable[base.length + 1];
+            if (base.length > 0) {
+                result[0] = base[0];
+            }
+            result[1] = highlight;
+            for (int index = 1; index < base.length; index++) {
+                result[index + 1] = base[index];
+            }
+            return result;
+        }
+    }
+
+    private static final class DedupeRow {
+        private final int rule;
+        private final String materialName;
+        private final String inputOreName;
+        private final String outputOreName;
+        private final boolean inputDuplicate;
+        private final boolean outputDuplicate;
+
+        private DedupeRow(
+            int rule,
+            String materialName,
+            String inputOreName,
+            String outputOreName,
+            boolean inputDuplicate,
+            boolean outputDuplicate) {
+            this.rule = rule;
+            this.materialName = materialName == null ? "" : materialName;
+            this.inputOreName = inputOreName;
+            this.outputOreName = outputOreName;
+            this.inputDuplicate = inputDuplicate;
+            this.outputDuplicate = outputDuplicate;
+        }
+
+        private String getLine() {
+            return "R" + (this.rule + 1) + " "
+                + label(this.inputOreName)
+                + " -> "
+                + label(this.outputOreName);
+        }
+
+        private String getInputLine() {
+            return label(this.inputOreName);
+        }
+
+        private String getOutputLine() {
+            return label(this.outputOreName);
+        }
+
+        private String getChoiceLine(WindowState state) {
+            return label(state.getSelectedDedupeLabel(this.inputOreName))
+                + " -> "
+                + label(state.getSelectedDedupeLabel(this.outputOreName));
+        }
+
+        private boolean matches(WindowState state, String search) {
+            return NechSearchCompat.matches(getLine(), search)
+                || NechSearchCompat.matches(getChoiceLine(state), search)
+                || NechSearchCompat.matches(this.materialName, search);
+        }
+
+        private static String label(String value) {
+            return value == null || value.isEmpty() ? "-" : value;
+        }
+    }
+
     private static final class WindowState {
         private final EntityPlayer player;
         private final int slot;
@@ -941,7 +1162,7 @@ public final class WildcardPatternWindow {
         private final List<String> previewLines = new ArrayList<>();
         private final List<String> previewMaterialNames = new ArrayList<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
-        private final List<String> dedupeOreNames = new ArrayList<>();
+        private final List<DedupeRow> dedupeRows = new ArrayList<>();
 
         private String globalExclude;
         private String previewSearch = "";
@@ -981,7 +1202,6 @@ public final class WildcardPatternWindow {
             ensureSize(this.outputs, RULE_ROWS);
             while (this.ruleIncludes.size() < RULE_ROWS) this.ruleIncludes.add("");
             while (this.ruleExcludes.size() < RULE_ROWS) this.ruleExcludes.add("");
-            rebuildPreview();
         }
 
         private void openPreview(int rule) {
@@ -1011,7 +1231,7 @@ public final class WildcardPatternWindow {
         }
 
         private int getDedupePageCount() {
-            return Math.max(1, (this.dedupeOreNames.size() + 9) / 10);
+            return Math.max(1, (this.dedupeRows.size() + DEDUPE_LINES - 1) / DEDUPE_LINES);
         }
 
         private void multiplyRule(int rule) {
@@ -1028,7 +1248,15 @@ public final class WildcardPatternWindow {
             }
             scaleEntry(this.inputs.get(rule), multiplying);
             scaleEntry(this.outputs.get(rule), multiplying);
-            rebuildPreview();
+            refreshActivePage();
+        }
+
+        private boolean canMultiplyRule(int rule) {
+            return canMultiplyEntry(this.inputs.get(rule)) && canMultiplyEntry(this.outputs.get(rule));
+        }
+
+        private boolean canMultiplyEntry(WildcardPatternEntry entry) {
+            return entry == null || entry.isEmpty() || entry.getAmountLong() <= WildcardPatternEntry.MAX_AMOUNT / 2L;
         }
 
         private static void scaleEntry(WildcardPatternEntry entry, boolean multiplying) {
@@ -1059,25 +1287,19 @@ public final class WildcardPatternWindow {
         }
 
         private void rebuildDedupe() {
-            this.dedupeOreNames.clear();
+            this.dedupeRows.clear();
             ItemStack preview = buildStack(null);
             if (preview == null) {
                 return;
             }
-            java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+            List<DedupeRow> rows = new ArrayList<>();
             for (int rule = 0; rule < RULE_ROWS; rule++) {
-                collectDuplicateOreNames(preview, names, this.inputs.get(rule), rule);
-                collectDuplicateOreNames(preview, names, this.outputs.get(rule), rule);
+                collectDuplicateRows(preview, rows, rule);
             }
-            String filter = this.dedupeSearch == null ? "" : this.dedupeSearch.trim().toLowerCase(java.util.Locale.ROOT);
-            for (String oreName : names) {
-                if (filter.isEmpty()) {
-                    this.dedupeOreNames.add(oreName);
-                    continue;
-                }
-                String selected = getSelectedDedupeLabel(oreName).toLowerCase(java.util.Locale.ROOT);
-                if (oreName.toLowerCase(java.util.Locale.ROOT).contains(filter) || selected.contains(filter)) {
-                    this.dedupeOreNames.add(oreName);
+            String filter = this.dedupeSearch == null ? "" : this.dedupeSearch.trim();
+            for (DedupeRow row : rows) {
+                if (filter.isEmpty() || row.matches(this, filter)) {
+                    this.dedupeRows.add(row);
                 }
             }
             if (this.dedupePageIndex >= getDedupePageCount()) {
@@ -1085,27 +1307,51 @@ public final class WildcardPatternWindow {
             }
         }
 
-        private void collectDuplicateOreNames(
-            ItemStack preview,
-            java.util.Set<String> result,
-            WildcardPatternEntry entry,
-            int rule) {
-            if (entry == null || entry.isEmpty()) {
-                return;
-            }
-            ItemData association = GTOreDictUnificator.getAssociation(entry.getDisplayStack());
-            if (association == null || !association.hasValidPrefixMaterialData()) {
-                return;
-            }
-            for (Materials material : WildcardPatternGenerator.getCandidateMaterials(preview, rule)) {
-                String oreName = getPrefixName(association.mPrefix) + material.mName;
-                if (OreDictionary.getOres(oreName) != null && OreDictionary.getOres(oreName).size() > 1) {
-                    result.add(oreName);
-                }
+        private void refreshActivePage() {
+            if (this.dedupePage) {
+                rebuildDedupe();
+            } else if (this.previewPage) {
+                rebuildPreview();
             }
         }
 
+        private DedupeRow getDedupeRow(int lineIndex) {
+            int absolute = this.dedupePageIndex * DEDUPE_LINES + lineIndex;
+            return absolute >= 0 && absolute < this.dedupeRows.size() ? this.dedupeRows.get(absolute) : null;
+        }
+
+        private void collectDuplicateRows(ItemStack preview, List<DedupeRow> rows, int rule) {
+            for (Materials material : WildcardPatternGenerator.getCandidateMaterials(preview, rule)) {
+                String inputOreName = getOreName(this.inputs.get(rule), material);
+                String outputOreName = getOreName(this.outputs.get(rule), material);
+                boolean inputDuplicate = hasDuplicateOptions(inputOreName);
+                boolean outputDuplicate = hasDuplicateOptions(outputOreName);
+                if (!inputDuplicate && !outputDuplicate) {
+                    continue;
+                }
+                rows.add(new DedupeRow(rule, material.mName, inputOreName, outputOreName, inputDuplicate, outputDuplicate));
+            }
+        }
+
+        private String getOreName(WildcardPatternEntry entry, Materials material) {
+            if (entry == null || entry.isEmpty()) {
+                return null;
+            }
+            ItemData association = GTOreDictUnificator.getAssociation(entry.getDisplayStack());
+            if (association == null || !association.hasValidPrefixMaterialData()) {
+                return null;
+            }
+            return getPrefixName(association.mPrefix) + material.mName;
+        }
+
+        private boolean hasDuplicateOptions(String oreName) {
+            return oreName != null && OreDictionary.getOres(oreName) != null && OreDictionary.getOres(oreName).size() > 1;
+        }
+
         private String getSelectedDedupeLabel(String oreName) {
+            if (oreName == null || oreName.isEmpty()) {
+                return "";
+            }
             java.util.List<ItemStack> options = OreDictionary.getOres(oreName);
             if (options == null || options.isEmpty()) {
                 return tr("gui.wildcardpattern.preview_empty");
@@ -1116,6 +1362,9 @@ public final class WildcardPatternWindow {
         }
 
         private void cycleDedupeChoice(String oreName) {
+            if (oreName == null || oreName.isEmpty()) {
+                return;
+            }
             java.util.List<ItemStack> options = OreDictionary.getOres(oreName);
             if (options == null || options.isEmpty()) {
                 return;
@@ -1177,12 +1426,12 @@ public final class WildcardPatternWindow {
                 ? new ArrayList<>()
                 : WildcardPatternGenerator.getCandidateMaterials(preview, rule);
 
-            String filter = this.previewSearch == null ? "" : this.previewSearch.trim().toLowerCase(java.util.Locale.ROOT);
+            String filter = this.previewSearch == null ? "" : this.previewSearch.trim();
             for (int i = 0; i < details.size(); i++) {
                 String materialName = i < materials.size() ? materials.get(i).mName : "";
                 String line = "R" + (rule + 1) + " " + summarize(details.get(i));
-                if (!filter.isEmpty() && !line.toLowerCase(java.util.Locale.ROOT).contains(filter)
-                    && !materialName.toLowerCase(java.util.Locale.ROOT).contains(filter)) {
+                if (!filter.isEmpty() && !NechSearchCompat.matches(line, filter)
+                    && !NechSearchCompat.matches(materialName, filter)) {
                     continue;
                 }
                 this.previewLines.add(line);
@@ -1251,3 +1500,6 @@ public final class WildcardPatternWindow {
         }
     }
 }
+
+
+

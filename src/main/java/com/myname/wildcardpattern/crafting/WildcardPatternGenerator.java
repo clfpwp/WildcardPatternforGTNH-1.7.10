@@ -181,7 +181,9 @@ public final class WildcardPatternGenerator {
         }
         NBTTagCompound rewrittenTag = new NBTTagCompound();
         stack.writeToNBT(rewrittenTag);
-        rewrittenTag.setLong("Cnt", stack.stackSize);
+        int count = Math.max(1, stack.stackSize);
+        rewrittenTag.setInteger("Count", count);
+        rewrittenTag.setLong("Cnt", count);
         rewritten.appendTag(rewrittenTag);
         return rewritten;
     }

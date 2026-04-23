@@ -44,3 +44,5 @@ gui.wildcardpattern.dedupe=去重
 gui.wildcardpattern.dedupe_page=样板去重
 gui.wildcardpattern.dedupe_hint=遇到同矿辞的多个物品时，默认优先 GT 物品；可搜索并切换保留项
 gui.wildcardpattern.dedupe_cycle=切换
+gui.wildcardpattern.dedupe_input=切换输入
+gui.wildcardpattern.dedupe_output=切换输出

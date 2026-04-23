@@ -1,4 +1,4 @@
-# Wildcard Pattern 1.0.1
+# Wildcard Pattern 1.0.2
 
 首个正式版本，面向 GTNH 2.8.4 / Minecraft 1.7.10 / AE2 Unofficial。
 
@@ -17,9 +17,9 @@
 
 ## Files
 
-- 正式使用：`wildcardpattern-1.0.1.jar`
-- 开发环境：`wildcardpattern-1.0.1-dev.jar`
-- 源码包：`wildcardpattern-1.0.1-sources.jar`
+- 正式使用：`wildcardpattern-1.0.2.jar`
+- 开发环境：`wildcardpattern-1.0.2-dev.jar`
+- 源码包：`wildcardpattern-1.0.2-sources.jar`
 
 ## Requirements
 
