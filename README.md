@@ -10,6 +10,7 @@
 - Minecraft: `1.7.10`
 - Forge: `10.13.4.1614`
 - 版本号: `1.0.1`
+- gtnh版本: `2.8.4`
 
 ## 核心功能
 
@@ -23,14 +24,9 @@
 - 支持总排除与每条规则独立排除
 - 支持重复矿辞结果去重，并在去重页面显示物品所属 `mod`
 - 去重默认优先 `gregtech` 物品，同时允许玩家手动切换保留项
-- 兼容 GTNH / AE2 的样板扩展逻辑
-- 兼容 ME 接口样板翻倍；规则也可单独进行倍增或减半
 
 ## 使用说明
 
-1. 获取 `通配样板` 物品。
-2. 手持右键打开配置界面。
-3. 在每一行中填写一条规则：
    - 左侧填写输入条件
    - 右侧填写输出条件
    - 选择名称模式或矿辞模式
@@ -46,22 +42,6 @@
 - 预览页面：按规则查看生成结果，支持搜索与分页
 - 去重页面：处理相同矿辞下的重复候选项，并显示来源模组
 
-## 开发与构建
-
-首次构建需要联网下载 Gradle 依赖与 GTNH 构建脚本。
-
-```powershell
-.\gradlew.bat assemble --no-configuration-cache
-```
-
-常用命令：
-
-```powershell
-.\gradlew.bat runClient
-.\gradlew.bat runServer
-.\gradlew.bat assemble
-```
-
 ## 主要目录
 
 - `src/main/java/com/myname/wildcardpattern/`：模组源码
@@ -72,14 +52,11 @@
 ## 兼容性说明
 
 - 目标环境：GTNH 2.8.4 / AE2 Unofficial / Forge 1.7.10
+- 目前仅测试过2.8.4版本，不确定其他版本能否正常运行
 - 依赖模组：
   - `appliedenergistics2`
   - `gregtech`
   - `modularui`
-
-## Release
-
-当前正式版本为 `1.0.1`，GitHub Release 文案可参考 `RELEASE_NOTES.md`。
 
 ## 致谢
 
