@@ -12,9 +12,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import appeng.api.networking.crafting.ICraftingPatternDetails;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.networking.crafting.ICraftingProviderHelper;
+import appeng.api.storage.data.IAEItemStack;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import gregtech.common.tileentities.machines.MTEHatchCraftingInputME;
+import gregtech.api.objects.GTDualInputPattern;
 import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
@@ -28,6 +31,9 @@ public abstract class MTEHatchCraftingInputMEMixin {
     @Shadow
     private Map<ICraftingPatternDetails, MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME>>
         patternDetailsPatternSlotMap;
+
+    @Shadow
+    private boolean justHadNewItems;
 
     @Shadow
     public abstract IInventory getPatterns();
@@ -49,7 +55,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
         IInventory patterns = getPatterns();
         World world = getWorld();
         for (int index = 0; index < this.internalInventory.length && index < patterns.getSizeInventory(); index++) {
-            MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = this.internalInventory[index];
+            MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = getOrCreateWildcardSlot(index);
             if (slot == null) {
                 continue;
             }
@@ -69,6 +75,42 @@ public abstract class MTEHatchCraftingInputMEMixin {
                 craftingTracker.addCraftingOption((ICraftingProvider) (Object) this, details);
             }
         }
+    }
+
+    @Inject(method = "pushPattern", at = @At("HEAD"), cancellable = true)
+    private void wildcardpattern$pushExpandedPattern(ICraftingPatternDetails patternDetails, InventoryCrafting table,
+        org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+        if (!hasWildcardPattern() || patternDetails == null) {
+            return;
+        }
+
+        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = this.patternDetailsPatternSlotMap.get(patternDetails);
+        if (slot == null) {
+            slot = findWildcardPatternSlot(patternDetails);
+            if (slot != null) {
+                this.patternDetailsPatternSlotMap.put(patternDetails, slot);
+            }
+        }
+        if (slot == null) {
+            return;
+        }
+        if (slot instanceof WildcardPatternSlot wildcardSlot) {
+            wildcardSlot.setActivePatternDetails(patternDetails);
+        }
+
+        MTEHatchCraftingInputME hatch = (MTEHatchCraftingInputME) (Object) this;
+        if (!hatch.isActive() || !hatch.getBaseMetaTileEntity().isAllowedToWork()) {
+            cir.setReturnValue(false);
+            return;
+        }
+
+        if (!slot.insertItemsAndFluids(table)) {
+            cir.setReturnValue(false);
+            return;
+        }
+
+        this.justHadNewItems = true;
+        cir.setReturnValue(true);
     }
 
     @Inject(method = "onPatternChange", at = @At("RETURN"))
@@ -100,7 +142,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
             return;
         }
 
-        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = this.internalInventory[index];
+        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = getOrCreateWildcardSlot(index);
         if (slot == null) {
             return;
         }
@@ -111,8 +153,142 @@ public abstract class MTEHatchCraftingInputMEMixin {
         }
     }
 
+    private MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> findWildcardPatternSlot(
+        ICraftingPatternDetails patternDetails) {
+        ItemStack requestedPattern = patternDetails.getPattern();
+        if (requestedPattern == null) {
+            return null;
+        }
+
+        World world = getWorld();
+        IInventory patterns = getPatterns();
+        for (int index = 0; index < this.internalInventory.length && index < patterns.getSizeInventory(); index++) {
+            MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = this.internalInventory[index];
+            ItemStack stack = patterns.getStackInSlot(index);
+            if (slot == null || !WildcardPatternGenerator.isWildcardPattern(stack)) {
+                continue;
+            }
+
+            for (ICraftingPatternDetails generated : WildcardPatternGenerator.generateAllDetails(stack, world)) {
+                if (arePatternDetailsEqual(generated, patternDetails)) {
+                    return slot;
+                }
+            }
+        }
+        return null;
+    }
+
+    private MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> getOrCreateWildcardSlot(int index) {
+        if (index < 0 || index >= this.internalInventory.length) {
+            return null;
+        }
+
+        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot = this.internalInventory[index];
+        IInventory patterns = getPatterns();
+        if (patterns == null || index >= patterns.getSizeInventory()) {
+            return slot;
+        }
+
+        ItemStack stack = patterns.getStackInSlot(index);
+        if (!WildcardPatternGenerator.isWildcardPattern(stack) || slot == null || slot instanceof WildcardPatternSlot) {
+            return slot;
+        }
+
+        WildcardPatternSlot wrapped = new WildcardPatternSlot((MTEHatchCraftingInputME) (Object) this, stack, slot);
+        this.internalInventory[index] = wrapped;
+        return wrapped;
+    }
+
+    private static boolean arePatternDetailsEqual(ICraftingPatternDetails left, ICraftingPatternDetails right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        ItemStack leftPattern = left.getPattern();
+        ItemStack rightPattern = right.getPattern();
+        if (leftPattern == rightPattern) {
+            return true;
+        }
+        if (leftPattern == null || rightPattern == null) {
+            return false;
+        }
+        if (leftPattern.getItem() != rightPattern.getItem() || leftPattern.getItemDamage() != rightPattern.getItemDamage()) {
+            return false;
+        }
+        NBTTagCompound leftTag = leftPattern.getTagCompound();
+        NBTTagCompound rightTag = rightPattern.getTagCompound();
+        if (leftTag == rightTag) {
+            return true;
+        }
+        if (leftTag == null || rightTag == null) {
+            return false;
+        }
+        return leftTag.equals(rightTag);
+    }
+
     private World getWorld() {
         return ((MTEHatchCraftingInputME) (Object) this).getBaseMetaTileEntity()
             .getWorld();
+    }
+
+    private static final class WildcardPatternSlot extends MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> {
+
+        private ICraftingPatternDetails activePatternDetails;
+
+        private WildcardPatternSlot(
+            MTEHatchCraftingInputME parent,
+            ItemStack pattern,
+            MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> originalSlot) {
+            super(pattern, parent);
+            for (ItemStack itemStack : originalSlot.getItemInputs()) {
+                if (itemStack != null) {
+                    this.itemInventory.add(itemStack.copy());
+                }
+            }
+            for (net.minecraftforge.fluids.FluidStack fluidStack : originalSlot.getFluidInputs()) {
+                if (fluidStack != null) {
+                    this.fluidInventory.add(fluidStack.copy());
+                }
+            }
+        }
+
+        private void setActivePatternDetails(ICraftingPatternDetails activePatternDetails) {
+            this.activePatternDetails = activePatternDetails;
+        }
+
+        @Override
+        public ICraftingPatternDetails getPatternDetails() {
+            return this.activePatternDetails != null ? this.activePatternDetails : super.getPatternDetails();
+        }
+
+        @Override
+        public GTDualInputPattern getPatternInputs() {
+            ICraftingPatternDetails details = getPatternDetails();
+            GTDualInputPattern dualInputs = new GTDualInputPattern();
+            ItemStack[] inputItems = this.parentMTE.getSharedItems();
+            net.minecraftforge.fluids.FluidStack[] inputFluids = gregtech.api.enums.GTValues.emptyFluidStackArray;
+
+            for (IAEItemStack singleInput : details.getInputs()) {
+                if (singleInput == null) {
+                    continue;
+                }
+                ItemStack singleInputItemStack = singleInput.getItemStack();
+                if (singleInputItemStack.getItem() instanceof com.glodblock.github.common.item.ItemFluidDrop) {
+                    net.minecraftforge.fluids.FluidStack fluidStack = com.glodblock.github.common.item.ItemFluidDrop
+                        .getFluidStack(singleInputItemStack);
+                    if (fluidStack != null) {
+                        inputFluids = org.apache.commons.lang3.ArrayUtils.addAll(inputFluids, fluidStack);
+                    }
+                } else {
+                    inputItems = org.apache.commons.lang3.ArrayUtils.addAll(inputItems, singleInputItemStack);
+                }
+            }
+
+            dualInputs.inputItems = inputItems;
+            dualInputs.inputFluid = inputFluids;
+            return dualInputs;
+        }
     }
 }

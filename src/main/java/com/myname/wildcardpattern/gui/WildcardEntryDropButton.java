@@ -21,7 +21,7 @@ public class WildcardEntryDropButton extends ButtonWidget implements IDragAndDro
             return false;
         }
         ItemStack copy = draggedStack.copy();
-        copy.stackSize = Math.max(1, draggedStack.stackSize);
+        copy.stackSize = 1;
         this.dropHandler.accept(copy);
         markForUpdate();
         return true;

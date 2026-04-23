@@ -9,7 +9,7 @@
 - Mod ID: `wildcardpattern`
 - Minecraft: `1.7.10`
 - Forge: `10.13.4.1614`
-- 版本号: `1.0.0`
+- 版本号: `1.0.1`
 
 ## 核心功能
 
@@ -79,7 +79,7 @@
 
 ## Release
 
-当前正式版本为 `1.0.0`，GitHub Release 文案可参考 `RELEASE_NOTES.md`。
+当前正式版本为 `1.0.1`，GitHub Release 文案可参考 `RELEASE_NOTES.md`。
 
 ## 致谢
 
