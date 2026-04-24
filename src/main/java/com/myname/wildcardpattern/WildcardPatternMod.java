@@ -35,6 +35,7 @@ public class WildcardPatternMod {
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
+        LOG.info("[wildcardpattern] Loaded build version={} (optimize: lag + matching)", Tags.VERSION);
         proxy.init(event);
     }
 }

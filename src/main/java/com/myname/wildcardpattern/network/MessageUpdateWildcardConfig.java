@@ -1,7 +1,6 @@
 package com.myname.wildcardpattern.network;
-
-import com.myname.wildcardpattern.ModItems;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
+import com.myname.wildcardpattern.ModItems;
 import com.myname.wildcardpattern.item.WildcardPatternState;
 
 import cpw.mods.fml.common.network.ByteBufUtils;

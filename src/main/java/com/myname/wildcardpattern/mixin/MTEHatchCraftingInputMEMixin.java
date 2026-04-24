@@ -62,7 +62,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
 
             ItemStack stack = patterns.getStackInSlot(index);
             if (WildcardPatternGenerator.isWildcardPattern(stack)) {
-                List<ICraftingPatternDetails> detailsList = WildcardPatternGenerator.generateAllDetails(stack, world);
+                List<ICraftingPatternDetails> detailsList = getExpandedDetails(slot, stack, world);
                 for (ICraftingPatternDetails details : detailsList) {
                     this.patternDetailsPatternSlotMap.put(details, slot);
                     craftingTracker.addCraftingOption((ICraftingProvider) (Object) this, details);
@@ -129,8 +129,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
     private boolean hasWildcardPattern() {
         IInventory patterns = getPatterns();
         for (int index = 0; index < this.internalInventory.length && index < patterns.getSizeInventory(); index++) {
-            if (this.internalInventory[index] != null
-                && WildcardPatternGenerator.isWildcardPattern(patterns.getStackInSlot(index))) {
+            if (WildcardPatternGenerator.isWildcardPattern(patterns.getStackInSlot(index))) {
                 return true;
             }
         }
@@ -148,7 +147,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
         }
 
         World world = getWorld();
-        for (ICraftingPatternDetails details : WildcardPatternGenerator.generateAllDetails(stack, world)) {
+        for (ICraftingPatternDetails details : getExpandedDetails(slot, stack, world)) {
             this.patternDetailsPatternSlotMap.put(details, slot);
         }
     }
@@ -169,7 +168,7 @@ public abstract class MTEHatchCraftingInputMEMixin {
                 continue;
             }
 
-            for (ICraftingPatternDetails generated : WildcardPatternGenerator.generateAllDetails(stack, world)) {
+            for (ICraftingPatternDetails generated : getExpandedDetails(slot, stack, world)) {
                 if (arePatternDetailsEqual(generated, patternDetails)) {
                     return slot;
                 }
@@ -190,13 +189,23 @@ public abstract class MTEHatchCraftingInputMEMixin {
         }
 
         ItemStack stack = patterns.getStackInSlot(index);
-        if (!WildcardPatternGenerator.isWildcardPattern(stack) || slot == null || slot instanceof WildcardPatternSlot) {
+        if (!WildcardPatternGenerator.isWildcardPattern(stack) || slot instanceof WildcardPatternSlot) {
             return slot;
         }
 
         WildcardPatternSlot wrapped = new WildcardPatternSlot((MTEHatchCraftingInputME) (Object) this, stack, slot);
         this.internalInventory[index] = wrapped;
         return wrapped;
+    }
+
+    private static List<ICraftingPatternDetails> getExpandedDetails(
+        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot,
+        ItemStack stack,
+        World world) {
+        if (slot instanceof WildcardPatternSlot wildcardSlot) {
+            return wildcardSlot.getExpandedDetails(stack, world);
+        }
+        return WildcardPatternGenerator.generateAllDetails(stack, world);
     }
 
     private static boolean arePatternDetailsEqual(ICraftingPatternDetails left, ICraftingPatternDetails right) {
@@ -236,26 +245,39 @@ public abstract class MTEHatchCraftingInputMEMixin {
     private static final class WildcardPatternSlot extends MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> {
 
         private ICraftingPatternDetails activePatternDetails;
+        private String cachedSignature;
+        private List<ICraftingPatternDetails> cachedExpandedDetails = java.util.Collections.emptyList();
 
         private WildcardPatternSlot(
             MTEHatchCraftingInputME parent,
             ItemStack pattern,
             MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> originalSlot) {
             super(pattern, parent);
-            for (ItemStack itemStack : originalSlot.getItemInputs()) {
-                if (itemStack != null) {
-                    this.itemInventory.add(itemStack.copy());
+            if (originalSlot != null) {
+                for (ItemStack itemStack : originalSlot.getItemInputs()) {
+                    if (itemStack != null) {
+                        this.itemInventory.add(itemStack.copy());
+                    }
                 }
-            }
-            for (net.minecraftforge.fluids.FluidStack fluidStack : originalSlot.getFluidInputs()) {
-                if (fluidStack != null) {
-                    this.fluidInventory.add(fluidStack.copy());
+                for (net.minecraftforge.fluids.FluidStack fluidStack : originalSlot.getFluidInputs()) {
+                    if (fluidStack != null) {
+                        this.fluidInventory.add(fluidStack.copy());
+                    }
                 }
             }
         }
 
         private void setActivePatternDetails(ICraftingPatternDetails activePatternDetails) {
             this.activePatternDetails = activePatternDetails;
+        }
+
+        private List<ICraftingPatternDetails> getExpandedDetails(ItemStack patternStack, World world) {
+            String signature = getPatternSignature(patternStack);
+            if (!signature.equals(this.cachedSignature)) {
+                this.cachedSignature = signature;
+                this.cachedExpandedDetails = WildcardPatternGenerator.generateAllDetails(patternStack, world);
+            }
+            return this.cachedExpandedDetails;
         }
 
         @Override
@@ -289,6 +311,14 @@ public abstract class MTEHatchCraftingInputMEMixin {
             dualInputs.inputItems = inputItems;
             dualInputs.inputFluid = inputFluids;
             return dualInputs;
+        }
+
+        private static String getPatternSignature(ItemStack stack) {
+            if (stack == null) {
+                return "";
+            }
+            NBTTagCompound tag = stack.getTagCompound();
+            return stack.getItemDamage() + ":" + (tag == null ? "" : tag.toString());
         }
     }
 }

@@ -11,7 +11,6 @@ import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
 
@@ -67,7 +66,16 @@ public class ItemWildcardPattern extends ItemEncodedPattern {
     @Override
     public ICraftingPatternDetails getPatternForItem(ItemStack stack, World world) {
         WildcardPatternGenerator.markAsWildcard(stack);
-        return WildcardPatternGenerator.getFirstDetail(stack, world);
+        return WildcardPatternGenerator.getDisplayDetails(stack, world);
+    }
+
+    @Override
+    public ItemStack getOutput(ItemStack item) {
+        if (!WildcardPatternGenerator.isWildcardPattern(item)) {
+            return super.getOutput(item);
+        }
+        WildcardPatternGenerator.markAsWildcard(item);
+        return WildcardPatternGenerator.getRepresentativeOutput(item);
     }
 
     @Override
@@ -80,10 +88,6 @@ public class ItemWildcardPattern extends ItemEncodedPattern {
         if (!WildcardPatternGenerator.isWildcardPattern(stack)) {
             WildcardPatternGenerator.markAsWildcard(stack);
         }
-        int count = WildcardPatternGenerator.countPatterns(stack);
-        lines.add(
-            EnumChatFormatting.GRAY
-                + StatCollector.translateToLocalFormatted("tooltip.wildcardpattern.expand_count", Integer.valueOf(count)));
-        lines.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.wildcardpattern.usage"));
+        lines.add(StatCollector.translateToLocal("tooltip.wildcardpattern.usage"));
     }
 }
