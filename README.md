@@ -9,7 +9,7 @@
 - Mod ID: `wildcardpattern`
 - Minecraft: `1.7.10`
 - Forge: `10.13.4.1614`
-- 版本号: `1.0.2`
+- 版本号: `1.0.3`
 - gtnh版本: `2.8.4`
 
 ## 核心功能
