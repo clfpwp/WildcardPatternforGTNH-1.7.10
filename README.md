@@ -39,7 +39,7 @@
 
 ## 主要目录
 
-- `src/main/java/com/myname/wildcardpattern/`：模组源码
+- `src/main/java/com//wildcardpattern/`：模组源码
 - `src/main/resources/assets/wildcardpattern/lang/`：中英文语言文件
 - `src/main/resources/mixins.wildcardpattern.json`：Mixin 配置
 - `src/main/resources/mcmod.info`：模组元数据

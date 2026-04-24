@@ -125,6 +125,7 @@ public final class WildcardPatternWindow {
             state.globalExclude = "";
             clearStrings(state.ruleIncludes);
             clearStrings(state.ruleExcludes);
+            state.invalidateAllPreviewCaches();
             for (EntryCellRefs ref : refs) {
                 ref.clear();
             }
@@ -224,6 +225,7 @@ public final class WildcardPatternWindow {
             state.outputs.set(row, WildcardPatternEntry.fromStack(null));
             state.ruleIncludes.set(row, "");
             state.ruleExcludes.set(row, "");
+            state.invalidatePreviewRule(row);
             input.clear();
             output.clear();
             state.refreshActivePage();
@@ -248,6 +250,7 @@ public final class WildcardPatternWindow {
                 next.convertToItem();
             }
             entries.set(index, next);
+            state.invalidatePreviewRule(index);
             state.refreshActivePage();
             if (textRef[0] != null) {
                 suppressNextSetter[0] = true;
@@ -271,6 +274,7 @@ public final class WildcardPatternWindow {
             } else {
                 entry.setMatcher(value);
             }
+            state.invalidatePreviewRule(index);
             state.refreshActivePage();
         });
         text.setText(entries.get(index).isEmpty() ? "" : trim(entries.get(index).getLabel(), 11));
@@ -329,6 +333,7 @@ public final class WildcardPatternWindow {
         suppressNextSetter[0] = true;
         text.setText(trim(entry.getLabel(), 11));
         text.markForUpdate();
+        state.invalidatePreviewRule(index);
         state.refreshActivePage();
     }
 
@@ -400,6 +405,7 @@ public final class WildcardPatternWindow {
                 () -> state.ruleIncludes.get(state.previewRule),
                 value -> {
                     state.ruleIncludes.set(state.previewRule, value == null ? "" : value);
+                    state.invalidatePreviewRule(state.previewRule);
                     state.previewPageIndex = 0;
                     state.refreshActivePage();
                 },
@@ -1313,6 +1319,7 @@ public final class WildcardPatternWindow {
         private final List<String> ruleIncludes;
         private final List<String> ruleExcludes;
         private final List<PreviewRow> previewRows = new ArrayList<>();
+        private final java.util.Map<Integer, List<PreviewRow>> previewRuleCaches = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
 
@@ -1360,6 +1367,7 @@ public final class WildcardPatternWindow {
             ensureSize(this.outputs, RULE_ROWS);
             while (this.ruleIncludes.size() < RULE_ROWS) this.ruleIncludes.add("");
             while (this.ruleExcludes.size() < RULE_ROWS) this.ruleExcludes.add("");
+            loadPersistedPreviewCaches(stack);
         }
 
         private void openPreview(int rule) {
@@ -1413,8 +1421,10 @@ public final class WildcardPatternWindow {
             String next = value == null ? "" : value;
             if (this.excludeRule >= 0) {
                 this.ruleExcludes.set(this.excludeRule, next);
+                invalidatePreviewRule(this.excludeRule);
             } else {
                 this.globalExclude = next;
+                invalidateAllPreviewCaches();
             }
             refreshActivePage();
         }
@@ -1490,9 +1500,6 @@ public final class WildcardPatternWindow {
         }
 
         private int getPreviewPageCount() {
-            if (this.previewFullyLoaded) {
-                return Math.max(1, (this.previewRows.size() + PREVIEW_LINES - 1) / PREVIEW_LINES);
-            }
             return Math.max(1, (this.previewRows.size() + PREVIEW_LINES - 1) / PREVIEW_LINES);
         }
 
@@ -1518,6 +1525,7 @@ public final class WildcardPatternWindow {
             }
             scaleEntry(this.inputs.get(rule), multiplying);
             scaleEntry(this.outputs.get(rule), multiplying);
+            invalidatePreviewRule(rule);
             refreshActivePage();
         }
 
@@ -1542,10 +1550,12 @@ public final class WildcardPatternWindow {
 
         private void rebuildPreview() {
             this.previewRows.clear();
-            loadPreviewPage(this.previewPageIndex);
+            for (Integer rule : getPreviewRules()) {
+                this.previewRows.addAll(getPreviewRowsForDisplay(rule));
+            }
+            applyPreviewFilter();
             if (this.previewPageIndex >= getPreviewPageCount()) {
                 this.previewPageIndex = Math.max(0, getPreviewPageCount() - 1);
-                loadPreviewPage(this.previewPageIndex);
             }
         }
 
@@ -1554,25 +1564,13 @@ public final class WildcardPatternWindow {
                 return;
             }
             this.previewPageIndex--;
-            loadPreviewPage(this.previewPageIndex);
         }
 
         private void nextPreviewPage() {
-            loadPreviewPage(this.previewPageIndex);
             if (this.previewPageIndex + 1 >= getPreviewPageCount()) {
                 return;
             }
             this.previewPageIndex++;
-            loadPreviewPage(this.previewPageIndex);
-        }
-
-        private void loadPreviewPage(int pageIndex) {
-            int safePageIndex = Math.max(0, pageIndex);
-            int targetRows = (safePageIndex + 1) * PREVIEW_LINES + 1;
-            PreviewScanResult result = scanPreviewRows(getPreviewFilter(), targetRows);
-            this.previewRows.clear();
-            this.previewRows.addAll(result.rows);
-            this.previewFullyLoaded = result.fullyLoaded;
         }
 
         private void rebuildDedupe() {
@@ -1680,6 +1678,7 @@ public final class WildcardPatternWindow {
             if (next != null) {
                 this.preferredOreStacks.put(oreName, next.copy());
             }
+            invalidateAllPreviewCaches();
             rebuildPreview();
             rebuildDedupe();
         }
@@ -1772,6 +1771,58 @@ public final class WildcardPatternWindow {
             return this.previewSearch == null ? "" : this.previewSearch.trim();
         }
 
+        private void invalidatePreviewRule(int rule) {
+            this.previewRuleCaches.remove(Integer.valueOf(rule));
+        }
+
+        private void invalidateAllPreviewCaches() {
+            this.previewRuleCaches.clear();
+        }
+
+        private void loadPersistedPreviewCaches(ItemStack stack) {
+            if (stack == null) {
+                return;
+            }
+            java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> cache = WildcardPatternState
+                .getPreviewCache(stack);
+            for (java.util.Map.Entry<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> entry : cache.entrySet()) {
+                java.util.List<PreviewRow> rows = new ArrayList<>();
+                for (WildcardPatternState.PreviewCacheEntry row : entry.getValue()) {
+                    rows.add(new PreviewRow(entry.getKey().intValue(), row.materialName, row.excludeToken, row.line));
+                }
+                this.previewRuleCaches.put(entry.getKey(), rows);
+            }
+        }
+
+        private java.util.List<PreviewRow> getPreviewRowsForDisplay(int rule) {
+            java.util.List<PreviewRow> rows = this.previewRuleCaches.get(Integer.valueOf(rule));
+            if (rows != null) {
+                return rows;
+            }
+            java.util.List<PreviewRow> built = new ArrayList<>();
+            collectPreviewLines(rule, built, "");
+            this.previewRuleCaches.put(Integer.valueOf(rule), built);
+            return built;
+        }
+
+        private void applyPreviewFilter() {
+            String filter = getPreviewFilter();
+            if (filter.isEmpty()) {
+                return;
+            }
+            java.util.List<PreviewRow> filtered = new ArrayList<>();
+            for (PreviewRow row : this.previewRows) {
+                if (row == null) {
+                    continue;
+                }
+                if (NechSearchCompat.matches(row.line, filter) || NechSearchCompat.matches(row.materialName, filter)) {
+                    filtered.add(row);
+                }
+            }
+            this.previewRows.clear();
+            this.previewRows.addAll(filtered);
+        }
+
         private PreviewRow getPreviewRow(int lineIndex) {
             int absolute = this.previewPageIndex * PREVIEW_LINES + lineIndex;
             return absolute >= 0 && absolute < this.previewRows.size() ? this.previewRows.get(absolute) : null;
@@ -1834,28 +1885,7 @@ public final class WildcardPatternWindow {
             }
             parts.add(token);
             this.ruleExcludes.set(rule, String.join(" ", parts));
-        }
-
-        private PreviewScanResult scanPreviewRows(String filter, int maxRows) {
-            List<PreviewRow> rows = new ArrayList<>();
-            boolean fullyLoaded = true;
-            for (Integer rule : getPreviewRules()) {
-                if (!collectPreviewLines(rule, rows, filter, maxRows)) {
-                    fullyLoaded = false;
-                    break;
-                }
-            }
-            return new PreviewScanResult(rows, fullyLoaded);
-        }
-
-        private static final class PreviewScanResult {
-            private final List<PreviewRow> rows;
-            private final boolean fullyLoaded;
-
-            private PreviewScanResult(List<PreviewRow> rows, boolean fullyLoaded) {
-                this.rows = rows;
-                this.fullyLoaded = fullyLoaded;
-            }
+            invalidatePreviewRule(rule);
         }
 
 
@@ -1865,9 +1895,29 @@ public final class WildcardPatternWindow {
             if (preview == null || held == null) {
                 return;
             }
+            ensurePreviewCaches();
+            WildcardPatternState.setPreviewCache(preview, exportPreviewCaches());
             WildcardPatternGenerator.markAsWildcard(held);
             WildcardPatternState.applyConfig(held, WildcardPatternState.exportConfig(preview));
             WildcardNetwork.CHANNEL.sendToServer(new MessageUpdateWildcardConfig(this.slot, WildcardPatternState.exportConfig(preview)));
+        }
+
+        private void ensurePreviewCaches() {
+            for (int rule = 0; rule < RULE_ROWS; rule++) {
+                getPreviewRowsForDisplay(rule);
+            }
+        }
+
+        private java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> exportPreviewCaches() {
+            java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> result = new java.util.LinkedHashMap<>();
+            for (java.util.Map.Entry<Integer, java.util.List<PreviewRow>> entry : this.previewRuleCaches.entrySet()) {
+                java.util.List<WildcardPatternState.PreviewCacheEntry> rows = new ArrayList<>();
+                for (PreviewRow row : entry.getValue()) {
+                    rows.add(new WildcardPatternState.PreviewCacheEntry(row.materialName, row.excludeToken, row.line));
+                }
+                result.put(entry.getKey(), rows);
+            }
+            return result;
         }
 
         private ItemStack buildStack(Integer onlyRule) {
