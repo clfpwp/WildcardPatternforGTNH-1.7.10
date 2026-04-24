@@ -2,21 +2,20 @@ package com.myname.wildcardpattern.item;
 
 import java.util.List;
 
-import appeng.api.implementations.ICraftingPatternItem;
 import appeng.api.networking.crafting.ICraftingPatternDetails;
+import appeng.items.misc.ItemEncodedPattern;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import com.myname.wildcardpattern.WildcardPatternMod;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
 
-public class ItemWildcardPattern extends Item implements ICraftingPatternItem {
+public class ItemWildcardPattern extends ItemEncodedPattern {
 
     public ItemWildcardPattern() {
         this.setMaxStackSize(1);
@@ -50,6 +49,22 @@ public class ItemWildcardPattern extends Item implements ICraftingPatternItem {
     }
 
     @Override
+    public boolean onItemUseFirst(
+        ItemStack stack,
+        EntityPlayer player,
+        World world,
+        int x,
+        int y,
+        int z,
+        int side,
+        float hitX,
+        float hitY,
+        float hitZ) {
+        WildcardPatternGenerator.markAsWildcard(stack);
+        return false;
+    }
+
+    @Override
     public ICraftingPatternDetails getPatternForItem(ItemStack stack, World world) {
         WildcardPatternGenerator.markAsWildcard(stack);
         return WildcardPatternGenerator.getFirstDetail(stack, world);
@@ -57,12 +72,14 @@ public class ItemWildcardPattern extends Item implements ICraftingPatternItem {
 
     @Override
     @SideOnly(Side.CLIENT)
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public void addInformation(ItemStack stack, EntityPlayer player, List lines, boolean advancedTooltips) {
+    public void addCheckedInformation(
+        ItemStack stack,
+        EntityPlayer player,
+        List<String> lines,
+        boolean advancedTooltips) {
         if (!WildcardPatternGenerator.isWildcardPattern(stack)) {
             WildcardPatternGenerator.markAsWildcard(stack);
         }
-
         int count = WildcardPatternGenerator.countPatterns(stack);
         lines.add(
             EnumChatFormatting.GRAY

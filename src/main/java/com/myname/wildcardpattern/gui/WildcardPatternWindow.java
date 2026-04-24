@@ -71,6 +71,7 @@ public final class WildcardPatternWindow {
         addHeader(builder, state);
         addMainPage(builder, state);
         addPreviewPage(builder, state);
+        addExcludePage(builder, state);
         addDedupePage(builder, state);
 
         return builder.build();
@@ -83,7 +84,9 @@ public final class WildcardPatternWindow {
         title.setStringSupplier(() -> EnumChatFormatting.BLACK + "" + EnumChatFormatting.BOLD
             + tr(state.dedupePage
                 ? "gui.wildcardpattern.dedupe_page"
-                : state.previewPage ? "gui.wildcardpattern.preview_page" : "gui.wildcardpattern.title"));
+                : state.excludePage
+                    ? "gui.wildcardpattern.exclude_page"
+                    : state.previewPage ? "gui.wildcardpattern.preview_page" : "gui.wildcardpattern.title"));
         builder.widget(title);
 
         TextWidget hint = new TextWidget("");
@@ -92,7 +95,9 @@ public final class WildcardPatternWindow {
         hint.setStringSupplier(() -> EnumChatFormatting.DARK_GRAY
             + tr(state.dedupePage
                 ? "gui.wildcardpattern.dedupe_hint"
-                : state.previewPage ? "gui.wildcardpattern.preview_hint" : "gui.wildcardpattern.drag_hint"));
+                : state.excludePage
+                    ? "gui.wildcardpattern.exclude_hint"
+                    : state.previewPage ? "gui.wildcardpattern.preview_hint" : "gui.wildcardpattern.drag_hint"));
         builder.widget(hint);
     }
 
@@ -321,25 +326,17 @@ public final class WildcardPatternWindow {
     private static void addGlobalExclude(ModularWindow.Builder builder, WindowState state, int x, int y) {
         addPanel(builder, state, x, y, 148, 40, false);
         addMainText(builder, state, EnumChatFormatting.BLACK + tr("gui.wildcardpattern.global_exclude"), x + 12, y + 10);
+        TextWidget summary = new TextWidget("");
+        summary.setPos(x + 12, y + 24);
+        summary.setScale(0.72f);
+        summary.setStringSupplier(() -> EnumChatFormatting.DARK_GRAY + trim(state.getExcludeSummary(-1), 24));
+        addMainWidget(builder, state, summary);
 
-        TextFieldWidget field = new WildcardFilterDropTextField(value -> {
-            state.globalExclude = value == null ? "" : value;
-            state.refreshActivePage();
-        });
-        field.setSynced(false, false);
-        field.setGetter(() -> state.globalExclude);
-        field.setText(state.globalExclude);
-        field.setSetter(value -> {
-            state.globalExclude = value == null ? "" : value;
-            state.refreshActivePage();
-        });
-        field.setTextColor(FIELD_TEXT_COLOR);
-        field.setBackground(WildcardPatternWindow::fieldBackground);
-        field.setTextAlignment(Alignment.CenterLeft);
-        field.setMaxLength(256);
-        field.setPos(x + 62, y + 7);
-        field.setSize(76, 17);
-        addMainWidget(builder, state, field);
+        ButtonWidget edit = button("gui.wildcardpattern.exclude_short");
+        edit.setPos(x + 96, y + 8);
+        edit.setSize(42, 18);
+        edit.setOnClick((clickData, widget) -> state.openExcludeEditor(-1));
+        addMainWidget(builder, state, edit);
     }
 
     private static void addRuleExcludeEditor(ModularWindow.Builder builder, WindowState state, int x, int y) {
@@ -349,25 +346,17 @@ public final class WildcardPatternWindow {
         label.setStringSupplier(() -> EnumChatFormatting.BLACK
             + StatCollector.translateToLocalFormatted("gui.wildcardpattern.rule_exclude", state.selectedRule + 1));
         addMainWidget(builder, state, label);
+        TextWidget summary = new TextWidget("");
+        summary.setPos(x + 8, y + 24);
+        summary.setScale(0.72f);
+        summary.setStringSupplier(() -> EnumChatFormatting.DARK_GRAY + trim(state.getExcludeSummary(state.selectedRule), 23));
+        addMainWidget(builder, state, summary);
 
-        TextFieldWidget field = new WildcardFilterDropTextField(value -> {
-            state.ruleExcludes.set(state.selectedRule, value == null ? "" : value);
-            state.refreshActivePage();
-        });
-        field.setSynced(false, false);
-        field.setGetter(() -> state.ruleExcludes.get(state.selectedRule));
-        field.setSetter(value -> {
-            state.ruleExcludes.set(state.selectedRule, value == null ? "" : value);
-            state.refreshActivePage();
-        });
-        field.setText(state.ruleExcludes.get(state.selectedRule));
-        field.setTextColor(FIELD_TEXT_COLOR);
-        field.setBackground(WildcardPatternWindow::fieldBackground);
-        field.setTextAlignment(Alignment.CenterLeft);
-        field.setMaxLength(256);
-        field.setPos(x + 64, y + 7);
-        field.setSize(64, 17);
-        addMainWidget(builder, state, field);
+        ButtonWidget edit = button("gui.wildcardpattern.exclude_short");
+        edit.setPos(x + 88, y + 8);
+        edit.setSize(42, 18);
+        edit.setOnClick((clickData, widget) -> state.openExcludeEditor(state.selectedRule));
+        addMainWidget(builder, state, edit);
     }
 
     private static void addPreviewPage(ModularWindow.Builder builder, WindowState state) {
@@ -410,20 +399,21 @@ public final class WildcardPatternWindow {
                 206,
                 true);
 
-            addPreviewTextField(
-                builder,
-                state,
-                EnumChatFormatting.DARK_GRAY + tr("gui.wildcardpattern.exclude_short"),
-                () -> state.ruleExcludes.get(state.previewRule),
-                value -> {
-                    state.ruleExcludes.set(state.previewRule, value == null ? "" : value);
-                    state.previewPageIndex = 0;
-                    state.refreshActivePage();
-                },
-                226,
-                58,
-                206,
-                true);
+            ButtonWidget editExclude = button("gui.wildcardpattern.exclude_short");
+            editExclude.setPos(384, 58);
+            editExclude.setSize(48, 18);
+            editExclude.setOnClick((clickData, widget) -> state.openExcludeEditor(state.previewRule));
+            addPreviewWidget(builder, state, editExclude);
+
+            TextWidget excludeSummary = new TextWidget("");
+            excludeSummary.setPos(226, 62);
+            excludeSummary.setScale(0.72f);
+            excludeSummary.setStringSupplier(
+                () -> EnumChatFormatting.DARK_GRAY
+                    + tr("gui.wildcardpattern.exclude_short")
+                    + ": "
+                    + trim(state.getExcludeSummary(state.previewRule), 18));
+            addPreviewWidget(builder, state, excludeSummary);
         }
 
         for (int i = 0; i < PREVIEW_LINES; i++) {
@@ -435,17 +425,6 @@ public final class WildcardPatternWindow {
                 return absolute < state.previewLines.size() ? EnumChatFormatting.DARK_GRAY + state.previewLines.get(absolute) : "";
             });
             addPreviewWidget(builder, state, line);
-
-            ButtonWidget exclude = button("gui.wildcardpattern.exclude_short");
-            exclude.setPos(400, 86 + i * 14);
-            exclude.setSize(34, 12);
-            exclude.setOnClick((clickData, widget) -> {
-                int absolute = state.previewPageIndex * PREVIEW_LINES + lineIndex;
-                if (absolute < state.previewMaterialNames.size()) {
-                    state.excludeMaterial(state.previewMaterialNames.get(absolute));
-                }
-            });
-            addPreviewWidget(builder, state, exclude);
         }
 
         ButtonWidget back = button("gui.wildcardpattern.back");
@@ -482,6 +461,69 @@ public final class WildcardPatternWindow {
             }
         });
         addPreviewWidget(builder, state, next);
+    }
+
+    private static void addExcludePage(ModularWindow.Builder builder, WindowState state) {
+        addExcludePanel(builder, state, 8, 28, 436, 262);
+        addExcludeSeparator(builder, state, 18, 55, 406, 2);
+
+        TextWidget title = new TextWidget("");
+        title.setPos(18, 38);
+        title.setStringSupplier(() -> EnumChatFormatting.BLACK + state.getExcludeTitle());
+        addExcludeWidget(builder, state, title);
+
+        TextWidget tip1 = new TextWidget("");
+        tip1.setPos(18, 68);
+        tip1.setStringSupplier(() -> EnumChatFormatting.DARK_GRAY + tr("gui.wildcardpattern.exclude_tip1"));
+        addExcludeWidget(builder, state, tip1);
+
+        TextWidget tip2 = new TextWidget("");
+        tip2.setPos(18, 81);
+        tip2.setStringSupplier(() -> EnumChatFormatting.DARK_GRAY + tr("gui.wildcardpattern.exclude_tip2"));
+        addExcludeWidget(builder, state, tip2);
+
+        TextFieldWidget field = new WildcardFilterDropTextField(value -> state.setCurrentExcludeValue(value));
+        field.setSynced(false, false);
+        field.setGetter(state::getCurrentExcludeValue);
+        field.setSetter(state::setCurrentExcludeValue);
+        field.setText(state.getCurrentExcludeValue());
+        field.setTextColor(FIELD_TEXT_COLOR);
+        field.setBackground(WildcardPatternWindow::fieldBackground);
+        field.setTextAlignment(Alignment.CenterLeft);
+        field.setMaxLength(256);
+        field.setPos(18, 104);
+        field.setSize(406, 18);
+        addExcludeWidget(builder, state, field);
+
+        TextWidget current = new TextWidget("");
+        current.setPos(18, 132);
+        current.setScale(0.78f);
+        current.setStringSupplier(() -> EnumChatFormatting.BLACK + tr("gui.wildcardpattern.exclude_current"));
+        addExcludeWidget(builder, state, current);
+
+        for (int i = 0; i < 8; i++) {
+            final int lineIndex = i;
+            TextWidget line = new TextWidget("");
+            line.setPos(18, 148 + i * 12);
+            line.setScale(0.72f);
+            line.setStringSupplier(() -> {
+                List<String> tokens = state.getCurrentExcludeTokens();
+                return lineIndex < tokens.size() ? EnumChatFormatting.DARK_GRAY + "- " + tokens.get(lineIndex) : "";
+            });
+            addExcludeWidget(builder, state, line);
+        }
+
+        ButtonWidget clear = button("gui.wildcardpattern.clear");
+        clear.setPos(286, 264);
+        clear.setSize(64, 17);
+        clear.setOnClick((clickData, widget) -> state.setCurrentExcludeValue(""));
+        addExcludeWidget(builder, state, clear);
+
+        ButtonWidget back = button("gui.wildcardpattern.back");
+        back.setPos(360, 264);
+        back.setSize(64, 17);
+        back.setOnClick((clickData, widget) -> state.closeExcludeEditor());
+        addExcludeWidget(builder, state, back);
     }
 
     private static void addDedupePage(ModularWindow.Builder builder, WindowState state) {
@@ -832,6 +874,11 @@ public final class WildcardPatternWindow {
         builder.widget(widget);
     }
 
+    private static void addExcludeWidget(ModularWindow.Builder builder, WindowState state, Widget widget) {
+        widget.setEnabled(w -> state.excludePage);
+        builder.widget(widget);
+    }
+
     private static void addDedupePanel(
         ModularWindow.Builder builder,
         WindowState state,
@@ -878,6 +925,32 @@ public final class WildcardPatternWindow {
         addDedupeWidget(builder, state, border);
     }
 
+    private static void addExcludePanel(
+        ModularWindow.Builder builder,
+        WindowState state,
+        int x,
+        int y,
+        int width,
+        int height) {
+        DrawableWidget shadow = new DrawableWidget();
+        shadow.setPos(x + 2, y + 2);
+        shadow.setSize(width, height);
+        shadow.setDrawable(new Rectangle().setColor(PANEL_SHADOW_COLOR));
+        addExcludeWidget(builder, state, shadow);
+
+        DrawableWidget border = new DrawableWidget();
+        border.setPos(x, y);
+        border.setSize(width, height);
+        border.setDrawable(WildcardPatternWindow::drawInsetPanel);
+        addExcludeWidget(builder, state, border);
+
+        DrawableWidget fill = new DrawableWidget();
+        fill.setPos(x + 3, y + 3);
+        fill.setSize(width - 6, height - 6);
+        fill.setDrawable(new Rectangle().setColor(PANEL_COLOR));
+        addExcludeWidget(builder, state, fill);
+    }
+
     private static void addDedupeSeparator(
         ModularWindow.Builder builder,
         WindowState state,
@@ -898,8 +971,28 @@ public final class WildcardPatternWindow {
         addDedupeWidget(builder, state, light);
     }
 
+    private static void addExcludeSeparator(
+        ModularWindow.Builder builder,
+        WindowState state,
+        int x,
+        int y,
+        int width,
+        int height) {
+        DrawableWidget dark = new DrawableWidget();
+        dark.setPos(x, y);
+        dark.setSize(width, Math.max(1, height / 2));
+        dark.setDrawable(new Rectangle().setColor(PANEL_LINE_DARK));
+        addExcludeWidget(builder, state, dark);
+
+        DrawableWidget light = new DrawableWidget();
+        light.setPos(x, y + Math.max(1, height / 2));
+        light.setSize(width, Math.max(1, height - Math.max(1, height / 2)));
+        light.setDrawable(new Rectangle().setColor(PANEL_LINE_LIGHT));
+        addExcludeWidget(builder, state, light);
+    }
+
     private static void addPageWidget(ModularWindow.Builder builder, WindowState state, Widget widget, boolean previewPage) {
-        widget.setEnabled(w -> !state.dedupePage && state.previewPage == previewPage);
+        widget.setEnabled(w -> !state.dedupePage && !state.excludePage && state.previewPage == previewPage);
         builder.widget(widget);
     }
 
@@ -1160,7 +1253,6 @@ public final class WildcardPatternWindow {
         private final List<String> ruleIncludes;
         private final List<String> ruleExcludes;
         private final List<String> previewLines = new ArrayList<>();
-        private final List<String> previewMaterialNames = new ArrayList<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
 
@@ -1169,8 +1261,11 @@ public final class WildcardPatternWindow {
         private String dedupeSearch = "";
         private boolean previewPage;
         private boolean dedupePage;
+        private boolean excludePage;
+        private boolean excludeReturnPreview;
         private int selectedRule;
         private int previewRule = -1;
+        private int excludeRule = -1;
         private int previewPageIndex;
         private int dedupePageIndex;
 
@@ -1206,17 +1301,80 @@ public final class WildcardPatternWindow {
 
         private void openPreview(int rule) {
             this.dedupePage = false;
+            this.excludePage = false;
             this.previewRule = rule;
             this.previewPageIndex = 0;
             this.previewPage = true;
             rebuildPreview();
         }
 
+        private void openExcludeEditor(int rule) {
+            this.excludeReturnPreview = this.previewPage;
+            this.previewPage = false;
+            this.dedupePage = false;
+            this.excludeRule = rule;
+            this.excludePage = true;
+        }
+
+        private void closeExcludeEditor() {
+            this.excludePage = false;
+            if (this.excludeReturnPreview) {
+                this.previewPage = true;
+                rebuildPreview();
+            }
+            this.excludeReturnPreview = false;
+        }
+
         private void openDedupe() {
             this.previewPage = false;
+            this.excludePage = false;
             this.dedupePage = true;
             this.dedupePageIndex = 0;
             rebuildDedupe();
+        }
+
+        private String getExcludeTitle() {
+            if (this.excludeRule >= 0) {
+                return StatCollector.translateToLocalFormatted("gui.wildcardpattern.rule_exclude", this.excludeRule + 1);
+            }
+            return tr("gui.wildcardpattern.global_exclude");
+        }
+
+        private String getCurrentExcludeValue() {
+            return this.excludeRule >= 0 ? this.ruleExcludes.get(this.excludeRule) : this.globalExclude;
+        }
+
+        private void setCurrentExcludeValue(String value) {
+            String next = value == null ? "" : value;
+            if (this.excludeRule >= 0) {
+                this.ruleExcludes.set(this.excludeRule, next);
+            } else {
+                this.globalExclude = next;
+            }
+            refreshActivePage();
+        }
+
+        private String getExcludeSummary(int rule) {
+            String value = rule >= 0 ? this.ruleExcludes.get(rule) : this.globalExclude;
+            if (value == null || value.trim().isEmpty()) {
+                return tr("gui.wildcardpattern.exclude_empty");
+            }
+            return value;
+        }
+
+        private List<String> getCurrentExcludeTokens() {
+            List<String> tokens = new ArrayList<>();
+            String value = getCurrentExcludeValue();
+            if (value == null || value.trim().isEmpty()) {
+                return tokens;
+            }
+            for (String token : value.split("[,;\\s]+")) {
+                String trimmed = token == null ? "" : token.trim();
+                if (!trimmed.isEmpty()) {
+                    tokens.add(trimmed);
+                }
+            }
+            return tokens;
         }
 
         private String getPreviewTitle() {
@@ -1272,7 +1430,6 @@ public final class WildcardPatternWindow {
 
         private void rebuildPreview() {
             this.previewLines.clear();
-            this.previewMaterialNames.clear();
 
             if (this.previewRule >= 0) {
                 collectPreviewLines(this.previewRule);
@@ -1435,25 +1592,9 @@ public final class WildcardPatternWindow {
                     continue;
                 }
                 this.previewLines.add(line);
-                this.previewMaterialNames.add(materialName);
             }
         }
 
-        private void excludeMaterial(String materialName) {
-            if (materialName == null || materialName.trim().isEmpty()) {
-                return;
-            }
-            String normalized = materialName.trim().toLowerCase(java.util.Locale.ROOT);
-            String current = this.globalExclude == null ? "" : this.globalExclude.trim();
-            for (String part : current.split("[,;锛岋紱\\s]+")) {
-                if (part.equalsIgnoreCase(normalized)) {
-                    rebuildPreview();
-                    return;
-                }
-            }
-            this.globalExclude = current.isEmpty() ? normalized : current + "," + normalized;
-            rebuildPreview();
-        }
 
         private void save() {
             ItemStack preview = buildStack(null);
@@ -1500,6 +1641,3 @@ public final class WildcardPatternWindow {
         }
     }
 }
-
-
-
