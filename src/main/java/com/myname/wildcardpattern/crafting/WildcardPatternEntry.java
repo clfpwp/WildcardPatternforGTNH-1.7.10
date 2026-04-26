@@ -1,9 +1,8 @@
 package com.myname.wildcardpattern.crafting;
 
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.LinkedHashSet;
-import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,8 +29,11 @@ public class WildcardPatternEntry {
     public static final long MAX_AMOUNT = 2_100_000_000L;
     private static final Map<String, Pattern> NAME_PATTERN_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, Pattern> ORE_PATTERN_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, Set<Materials>> ORE_CANDIDATE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Set<String>> ORE_CANDIDATE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Set<String>> NAME_CANDIDATE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, Materials> MATERIAL_NAME_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, ItemStack> DEFAULT_ORE_STACK_CACHE = new ConcurrentHashMap<>();
+    private static volatile Set<String> ALL_KNOWN_MATERIAL_NAMES;
 
     private boolean oreDictMode;
     private ItemStack stack;
@@ -45,7 +47,8 @@ public class WildcardPatternEntry {
         entry.displayStack = stack == null ? null : stack.copy();
         entry.amount = stack == null ? 1L : Math.max(1L, stack.stackSize);
         entry.oreDictMode = false;
-        entry.matcher = stack == null ? "" : stack.getDisplayName();
+        String displayName = safeGetDisplayName(stack);
+        entry.matcher = displayName == null ? "" : displayName;
         return entry;
     }
 
@@ -72,7 +75,8 @@ public class WildcardPatternEntry {
             entry.displayStack = entry.stack.copy();
         }
         if ((entry.matcher == null || entry.matcher.isEmpty()) && entry.stack != null) {
-            entry.matcher = entry.stack.getDisplayName();
+            String displayName = safeGetDisplayName(entry.stack);
+            entry.matcher = displayName == null ? "" : displayName;
         }
         return entry;
     }
@@ -95,110 +99,187 @@ public class WildcardPatternEntry {
         return tag;
     }
 
-    public ItemStack createStack(Materials material, ItemStack configStack) {
-        List<ItemStack> stacks = createStacks(material, configStack);
-        return stacks.isEmpty() ? null : stacks.get(0);
-    }
-
-    public List<ItemStack> createStacks(Materials material, ItemStack configStack) {
+    public ItemStack createStack(String materialName, ItemStack configStack) {
         if (isEmpty()) {
-            return java.util.Collections.emptyList();
+            return null;
         }
         if (this.oreDictMode) {
-            return createOreDictStacks(material, configStack);
+            return createOreDictStack(materialName, configStack);
         }
-        ItemStack stack = createNameMatchedStack(material, configStack);
-        return stack == null ? java.util.Collections.<ItemStack>emptyList() : java.util.Collections.singletonList(stack);
+        return createNameMatchedStack(materialName, configStack);
     }
 
-    private List<ItemStack> createOreDictStacks(Materials material, ItemStack configStack) {
-        String matcher = normalizeOreMatcher(this.matcher);
-        if (matcher.isEmpty() || isMatchAllPattern(matcher) || material == null) {
-            return java.util.Collections.emptyList();
-        }
-        List<OreMatch> matches = new ArrayList<>();
-        for (OrePrefixes prefix : OrePrefixes.values()) {
-            String oreName = getOreName(prefix, material);
-            if (oreName.isEmpty() || !matchesOreName(oreName, matcher)) {
-                continue;
-            }
-            matches.add(new OreMatch(prefix, oreName));
-        }
-        if (matches.isEmpty()) {
-            return java.util.Collections.emptyList();
-        }
-        matches.sort((left, right) -> {
-            if (left.score != right.score) {
-                return Integer.compare(left.score, right.score);
-            }
-            if (left.oreName.length() != right.oreName.length()) {
-                return Integer.compare(left.oreName.length(), right.oreName.length());
-            }
-            return left.oreName.compareToIgnoreCase(right.oreName);
-        });
+    public ItemStack createStack(Materials material, ItemStack configStack) {
+        return createStack(material == null ? null : material.mName, configStack);
+    }
 
-        List<ItemStack> result = new ArrayList<>();
-        for (OreMatch match : matches) {
-            ItemStack preferred = getPreferredOreStack(configStack, match.prefix, material);
-            if (preferred != null) {
-                preferred.stackSize = getClampedAmount();
-                addDistinctStack(result, preferred);
-                continue;
+    public Set<String> getCandidateMaterials() {
+        if (this.oreDictMode) {
+            String oreMatcher = normalizeOreMatcher(this.matcher);
+            if (oreMatcher.isEmpty() || isMatchAllPattern(oreMatcher)) {
+                return new LinkedHashSet<>();
             }
-            ItemStack unified = GTOreDictUnificator.get(match.prefix, material, getClampedAmount());
-            if (unified != null) {
-                unified.stackSize = getClampedAmount();
-                addDistinctStack(result, unified);
-                continue;
+            return new LinkedHashSet<>(ORE_CANDIDATE_CACHE.computeIfAbsent(oreMatcher, WildcardPatternEntry::collectOreDictCandidateMaterials));
+        }
+
+        String nameMatcher = getMatcher();
+        if (nameMatcher.isEmpty() || isMatchAllPattern(nameMatcher)) {
+            return new LinkedHashSet<>();
+        }
+        // Fast path: exact matcher — look up candidates from the item's own ore dict IDs
+        // instead of iterating all ore dict entries (avoids lock contention with main thread).
+        if (!containsWildcard(nameMatcher) && !containsRegexMeta(nameMatcher)) {
+            return getDirectCandidateMaterials();
+        }
+        return new LinkedHashSet<>(NAME_CANDIDATE_CACHE.computeIfAbsent(nameMatcher, WildcardPatternEntry::collectNameCandidateMaterials));
+    }
+
+    // Returns candidate material names derived directly from the display item's ore dict
+    // registrations. O(oreIDs) rather than O(allOreNames), so it doesn't hold the
+    // OreDictionary lock long enough to stall the main thread.
+    private Set<String> getDirectCandidateMaterials() {
+        Set<String> result = new LinkedHashSet<>();
+        ItemStack source = this.displayStack != null ? this.displayStack : this.stack;
+        if (source == null) {
+            return result;
+        }
+        ItemData association = GTOreDictUnificator.getAssociation(source);
+        if (association != null && association.hasValidPrefixMaterialData()) {
+            Materials mat = association.mMaterial.mMaterial;
+            if (isRealMaterial(mat) && mat.mName != null && !mat.mName.isEmpty()) {
+                result.add(mat.mName);
+                return result;
             }
-            ItemStack fallback = getDefaultPreferredOreStack(match.oreName);
-            if (fallback != null) {
-                fallback.stackSize = getClampedAmount();
-                addDistinctStack(result, fallback);
+        }
+        int[] oreIds = OreDictionary.getOreIDs(source);
+        if (oreIds != null) {
+            for (int oreId : oreIds) {
+                String materialName = extractMaterialNameFromOreName(OreDictionary.getOreName(oreId));
+                if (!materialName.isEmpty()) {
+                    result.add(materialName);
+                }
             }
         }
         return result;
     }
 
-    private ItemStack createNameMatchedStack(Materials material, ItemStack configStack) {
-        if (material == null) {
+    // True when this entry is name-mode AND none of its display item's ore names carry a
+    // recognised GT ore prefix.  Such entries always resolve to exactly one fixed item.
+    boolean isDirectItem() {
+        return !this.oreDictMode && getDisplayPrefix() == null;
+    }
+
+    public static Set<String> getAllKnownMaterialNames() {
+        Set<String> cached = ALL_KNOWN_MATERIAL_NAMES;
+        if (cached != null) {
+            return new LinkedHashSet<>(cached);
+        }
+
+        LinkedHashSet<String> built = new LinkedHashSet<>();
+        for (Materials material : Materials.getAll()) {
+            if (isRealMaterial(material) && material.mName != null && !material.mName.isEmpty()) {
+                built.add(material.mName);
+            }
+        }
+        for (String oreName : OreDictionary.getOreNames()) {
+            String materialName = extractMaterialNameFromOreName(oreName);
+            if (!materialName.isEmpty()) {
+                built.add(materialName);
+            }
+        }
+        ALL_KNOWN_MATERIAL_NAMES = built;
+        return new LinkedHashSet<>(built);
+    }
+
+    private ItemStack createOreDictStack(String materialName, ItemStack configStack) {
+        String matcherValue = normalizeOreMatcher(this.matcher);
+        if (matcherValue.isEmpty() || isMatchAllPattern(matcherValue) || materialName == null || materialName.trim().isEmpty()) {
             return null;
         }
 
-        ItemStack preferred = tryCreatePreferredStack(material, configStack);
-        if (preferred != null && matchesName(preferred.getDisplayName(), this.matcher)) {
+        Materials material = findMaterialByName(materialName);
+        String token = normalizeOreToken(matcherValue);
+        OrePrefixes exactPrefix = findPrefix(token);
+        if (exactPrefix != null) {
+            return createPreferredOreVariant(configStack, exactPrefix, materialName, material);
+        }
+
+        OreMatch bestMatch = null;
+        for (OrePrefixes prefix : OrePrefixes.values()) {
+            String oreName = getOreName(prefix, materialName);
+            if (oreName.isEmpty() || !matchesOreName(oreName, matcherValue)) {
+                continue;
+            }
+            OreMatch current = new OreMatch(prefix, oreName);
+            if (bestMatch == null || current.compareTo(bestMatch) < 0) {
+                bestMatch = current;
+            }
+        }
+        if (bestMatch == null) {
+            return null;
+        }
+
+        return createPreferredOreVariant(configStack, bestMatch.prefix, materialName, material);
+    }
+
+    private ItemStack createNameMatchedStack(String materialName, ItemStack configStack) {
+        if (materialName == null || materialName.trim().isEmpty()) {
+            return null;
+        }
+
+        // Short-circuit for items with no recognised ore prefix (e.g. vanilla items).
+        // There is no ore-prefix expansion possible, so return the display stack directly
+        // instead of iterating all OrePrefixes looking for a match that can never exist.
+        if (getDisplayPrefix() == null) {
+            ItemStack source = this.displayStack != null ? this.displayStack : this.stack;
+            if (source != null && matchesName(safeGetDisplayName(source), this.matcher)) {
+                ItemStack copy = source.copy();
+                copy.stackSize = getClampedAmount();
+                return copy;
+            }
+            return null;
+        }
+
+        ItemStack preferred = tryCreatePreferredStack(materialName, configStack);
+        if (preferred != null && matchesName(safeGetDisplayName(preferred), this.matcher)) {
             preferred.stackSize = getClampedAmount();
             return preferred;
         }
 
+        ItemStack source = this.stack != null ? this.stack : this.displayStack;
+        String sourceMaterial = getAssociatedMaterialName(source);
+        if (source != null
+            && !sourceMaterial.isEmpty()
+            && sourceMaterial.equalsIgnoreCase(materialName)
+            && matchesName(safeGetDisplayName(source), this.matcher)) {
+            ItemStack copy = source.copy();
+            copy.stackSize = getClampedAmount();
+            return copy;
+        }
+
+        Materials material = findMaterialByName(materialName);
         for (OrePrefixes prefix : OrePrefixes.values()) {
-            ItemStack candidate = getPreferredOreStack(configStack, prefix, material);
-            if (candidate == null) {
+            ItemStack candidate = getPreferredOreStack(configStack, prefix, materialName);
+            if (candidate == null && isRealMaterial(material)) {
                 candidate = GTOreDictUnificator.get(prefix, material, getClampedAmount());
             }
-            if (candidate != null && matchesName(candidate.getDisplayName(), this.matcher)) {
+            if (candidate != null && matchesName(safeGetDisplayName(candidate), this.matcher)) {
                 candidate.stackSize = getClampedAmount();
                 return candidate;
             }
         }
 
-        if (this.stack != null && matchesName(this.stack.getDisplayName(), this.matcher)) {
-            ItemStack copy = this.stack.copy();
-            copy.stackSize = getClampedAmount();
-            return copy;
-        }
-
         for (OrePrefixes prefix : OrePrefixes.values()) {
-            String oreName = getOreName(prefix, material);
+            String oreName = getOreName(prefix, materialName);
             if (oreName.isEmpty()) {
                 continue;
             }
-            java.util.ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
+            ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
             if (options == null || options.isEmpty()) {
                 continue;
             }
             for (ItemStack option : options) {
-                if (option == null || option.getItem() == null || !matchesName(option.getDisplayName(), this.matcher)) {
+                if (option == null || option.getItem() == null || !matchesName(safeGetDisplayName(option), this.matcher)) {
                     continue;
                 }
                 ItemStack copy = option.copy();
@@ -209,29 +290,28 @@ public class WildcardPatternEntry {
         return null;
     }
 
-    private ItemStack tryCreatePreferredStack(Materials material, ItemStack configStack) {
-        ItemData association = getDisplayAssociation();
-        if (association != null && association.hasValidPrefixMaterialData()) {
-            ItemStack preferred = getPreferredOreStack(configStack, association.mPrefix, material);
-            return preferred != null ? preferred : GTOreDictUnificator.get(association.mPrefix, material, getClampedAmount());
-        }
-        return null;
+    private ItemStack tryCreatePreferredStack(String materialName, ItemStack configStack) {
+        OrePrefixes prefix = getDisplayPrefix();
+        return prefix == null ? null : createPreferredOreVariant(configStack, prefix, materialName, findMaterialByName(materialName));
     }
 
     public Materials getTemplateMaterial() {
         ItemData association = getDisplayAssociation();
-        return association != null && association.hasValidPrefixMaterialData() ? association.mMaterial.mMaterial : Materials._NULL;
+        if (association != null && association.hasValidPrefixMaterialData()) {
+            return association.mMaterial.mMaterial;
+        }
+        return findMaterialByName(extractMaterialNameFromOreName(getDisplayOreName()));
     }
 
     public boolean canOreDict() {
-        ItemData association = getDisplayAssociation();
-        return association != null && association.hasValidPrefixMaterialData();
+        return getDisplayPrefix() != null;
     }
 
     public void convertToOreDict() {
         this.oreDictMode = true;
-        if (canOreDict()) {
-            this.matcher = getPrefixName(getDisplayAssociation().mPrefix) + "*";
+        OrePrefixes prefix = getDisplayPrefix();
+        if (prefix != null) {
+            this.matcher = getPrefixName(prefix) + "*";
         } else if (this.matcher == null || this.matcher.trim().isEmpty()) {
             this.matcher = "*";
         }
@@ -240,7 +320,8 @@ public class WildcardPatternEntry {
     public void convertToItem() {
         this.oreDictMode = false;
         if (this.displayStack != null) {
-            this.matcher = this.displayStack.getDisplayName();
+            String displayName = safeGetDisplayName(this.displayStack);
+            this.matcher = displayName == null ? "" : displayName;
         }
     }
 
@@ -259,49 +340,11 @@ public class WildcardPatternEntry {
     }
 
     public String getLabel() {
-        String value = getMatcher();
-        if (this.oreDictMode) {
-            return value;
-        }
-        return value;
+        return getMatcher();
     }
 
     public boolean isOreDict() {
         return this.oreDictMode;
-    }
-
-    public Set<Materials> getOreDictCandidateMaterials() {
-        if (!this.oreDictMode) {
-            return new LinkedHashSet<>();
-        }
-
-        String matcher = normalizeOreMatcher(this.matcher);
-        if (matcher.isEmpty() || isMatchAllPattern(matcher)) {
-            return new LinkedHashSet<>();
-        }
-        return new LinkedHashSet<>(ORE_CANDIDATE_CACHE.computeIfAbsent(matcher, WildcardPatternEntry::collectOreDictCandidateMaterials));
-    }
-
-    private static Set<Materials> collectOreDictCandidateMaterials(String matcher) {
-        Set<Materials> result = new LinkedHashSet<>();
-        for (String oreName : OreDictionary.getOreNames()) {
-            if (oreName == null || oreName.isEmpty() || !matchesOreName(oreName, matcher)) {
-                continue;
-            }
-
-            Materials parsed = extractMaterialFromOreName(oreName);
-            if (parsed != null && parsed != Materials._NULL && parsed != Materials.Empty) {
-                result.add(parsed);
-            }
-
-            for (ItemStack option : OreDictionary.getOres(oreName)) {
-                Materials associated = getAssociatedMaterial(option);
-                if (associated != null && associated != Materials._NULL && associated != Materials.Empty) {
-                    result.add(associated);
-                }
-            }
-        }
-        return result;
     }
 
     public boolean isEmpty() {
@@ -325,26 +368,19 @@ public class WildcardPatternEntry {
         if (matcher.isEmpty() || matcher.indexOf(' ') >= 0) {
             return false;
         }
-        boolean hasLower = false;
-        boolean hasUpper = false;
+        boolean hasLetter = false;
         for (int index = 0; index < matcher.length(); index++) {
             char current = matcher.charAt(index);
             if (current == '*' || current == '?') {
                 continue;
             }
-            if (Character.isLowerCase(current)) {
-                hasLower = true;
+            if (Character.isLetterOrDigit(current)) {
+                hasLetter = true;
                 continue;
             }
-            if (Character.isUpperCase(current)) {
-                hasUpper = true;
-                continue;
-            }
-            if (!Character.isDigit(current)) {
-                return false;
-            }
+            return false;
         }
-        return hasLower || hasUpper;
+        return hasLetter;
     }
 
     public String getOrePrefix() {
@@ -390,7 +426,8 @@ public class WildcardPatternEntry {
         this.stack = stack == null ? null : stack.copy();
         this.displayStack = this.stack == null ? null : this.stack.copy();
         if (this.stack != null && !this.oreDictMode) {
-            this.matcher = this.stack.getDisplayName();
+            String displayName = safeGetDisplayName(this.stack);
+            this.matcher = displayName == null ? "" : displayName;
         }
     }
 
@@ -401,6 +438,130 @@ public class WildcardPatternEntry {
     private ItemData getDisplayAssociation() {
         ItemStack target = getDisplayStack();
         return target == null ? null : GTOreDictUnificator.getAssociation(target);
+    }
+
+    private OrePrefixes getDisplayPrefix() {
+        ItemData association = getDisplayAssociation();
+        if (association != null && association.hasValidPrefixMaterialData()) {
+            return association.mPrefix;
+        }
+        return extractPrefixFromOreName(getDisplayOreName());
+    }
+
+    private String getDisplayOreName() {
+        ItemStack target = this.displayStack != null ? this.displayStack : this.stack;
+        return getBestOreName(target);
+    }
+
+    private static Set<String> collectOreDictCandidateMaterials(String matcher) {
+        String normalized = normalizeOreMatcher(matcher);
+        if (normalized.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        if (!containsWildcard(normalized)) {
+            return collectExactOreDictCandidateMaterials(normalized);
+        }
+
+        if (isSimplePrefixWildcard(normalized)) {
+            return collectPrefixOreDictCandidateMaterials(normalizeOreToken(normalized));
+        }
+
+        Set<String> result = new LinkedHashSet<>();
+        for (String oreName : OreDictionary.getOreNames()) {
+            if (oreName == null || oreName.isEmpty() || !matchesOreName(oreName, normalized)) {
+                continue;
+            }
+            collectMaterialNamesForOreName(result, oreName);
+        }
+        return result;
+    }
+
+    private static Set<String> collectExactOreDictCandidateMaterials(String oreName) {
+        Set<String> result = new LinkedHashSet<>();
+        if (oreName == null || oreName.isEmpty()) {
+            return result;
+        }
+        for (String actualOreName : OreDictionary.getOreNames()) {
+            if (actualOreName != null && actualOreName.equalsIgnoreCase(oreName)) {
+                collectMaterialNamesForOreName(result, actualOreName);
+            }
+        }
+        return result;
+    }
+
+    private static Set<String> collectPrefixOreDictCandidateMaterials(String prefixToken) {
+        Set<String> result = new LinkedHashSet<>();
+        OrePrefixes prefix = findPrefix(prefixToken);
+        if (prefix == null) {
+            return result;
+        }
+
+        String prefixName = getPrefixName(prefix);
+        for (String oreName : OreDictionary.getOreNames()) {
+            if (oreName == null || oreName.isEmpty()) {
+                continue;
+            }
+            if (!oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
+                continue;
+            }
+            String materialName = extractMaterialNameFromOreName(oreName);
+            if (!materialName.isEmpty()) {
+                result.add(materialName);
+            }
+        }
+        return result;
+    }
+
+    private static void collectMaterialNamesForOreName(Set<String> result, String oreName) {
+        if (result == null || oreName == null || oreName.isEmpty()) {
+            return;
+        }
+        String parsed = extractMaterialNameFromOreName(oreName);
+        if (!parsed.isEmpty()) {
+            result.add(parsed);
+        }
+
+        ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
+        if (options == null) {
+            return;
+        }
+        for (ItemStack option : options) {
+            String associated = getAssociatedMaterialName(option);
+            if (!associated.isEmpty()) {
+                result.add(associated);
+            }
+        }
+    }
+
+    private static Set<String> collectNameCandidateMaterials(String matcher) {
+        Set<String> result = new LinkedHashSet<>();
+        for (String oreName : OreDictionary.getOreNames()) {
+            ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
+            if (options == null) {
+                continue;
+            }
+            String materialName = extractMaterialNameFromOreName(oreName);
+            for (ItemStack option : options) {
+                String displayName = safeGetDisplayName(option);
+                if (displayName == null || !matchesName(displayName, matcher)) {
+                    continue;
+                }
+                if (!materialName.isEmpty()) {
+                    result.add(materialName);
+                }
+                String associated = getAssociatedMaterialName(option);
+                if (!associated.isEmpty()) {
+                    result.add(associated);
+                }
+                break;
+            }
+        }
+        return result;
+    }
+
+    private static boolean isRealMaterial(Materials material) {
+        return material != null && material != Materials._NULL && material != Materials.Empty;
     }
 
     private static String normalizeOreToken(String value) {
@@ -477,6 +638,13 @@ public class WildcardPatternEntry {
         return pattern.indexOf('*') >= 0 || pattern.indexOf('?') >= 0;
     }
 
+    private static boolean isSimplePrefixWildcard(String pattern) {
+        if (pattern == null || !pattern.endsWith("*") || pattern.indexOf('?') >= 0) {
+            return false;
+        }
+        return pattern.indexOf('*') == pattern.length() - 1;
+    }
+
     private static boolean isMatchAllPattern(String pattern) {
         if (pattern == null) {
             return false;
@@ -532,8 +700,50 @@ public class WildcardPatternEntry {
         return prefix.toString();
     }
 
-    private ItemStack getPreferredOreStack(ItemStack configStack, OrePrefixes prefix, Materials material) {
-        String oreName = getOreName(prefix, material);
+    private static OrePrefixes findPrefix(String token) {
+        OrePrefixes exact = OrePrefixes.getPrefix(token);
+        if (exact != null) {
+            return exact;
+        }
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        for (OrePrefixes prefix : OrePrefixes.values()) {
+            String prefixName = getPrefixName(prefix);
+            if (!prefixName.isEmpty() && prefixName.equalsIgnoreCase(token)) {
+                return prefix;
+            }
+        }
+        return null;
+    }
+
+    private ItemStack createPreferredOreVariant(
+        ItemStack configStack,
+        OrePrefixes prefix,
+        String materialName,
+        Materials material) {
+        ItemStack preferred = getPreferredOreStack(configStack, prefix, materialName);
+        if (preferred != null) {
+            preferred.stackSize = getClampedAmount();
+            return preferred;
+        }
+        if (isRealMaterial(material)) {
+            ItemStack unified = GTOreDictUnificator.get(prefix, material, getClampedAmount());
+            if (unified != null) {
+                unified.stackSize = getClampedAmount();
+                return unified;
+            }
+        }
+        String oreName = getOreName(prefix, materialName);
+        ItemStack fallback = getDefaultPreferredOreStack(oreName);
+        if (fallback != null) {
+            fallback.stackSize = getClampedAmount();
+        }
+        return fallback;
+    }
+
+    private ItemStack getPreferredOreStack(ItemStack configStack, OrePrefixes prefix, String materialName) {
+        String oreName = getOreName(prefix, materialName);
         if (oreName.isEmpty()) {
             return null;
         }
@@ -544,7 +754,7 @@ public class WildcardPatternEntry {
         if (preferred == null) {
             return null;
         }
-        java.util.ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
+        ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
         boolean matched = false;
         for (ItemStack option : options) {
             if (OreDictionary.itemMatches(option, preferred, false)) {
@@ -564,8 +774,20 @@ public class WildcardPatternEntry {
         return (int) Math.max(1L, Math.min((long) Integer.MAX_VALUE, getAmountLong()));
     }
 
+    private static final ItemStack MISSING_ORE_SENTINEL = new ItemStack(net.minecraft.init.Items.apple, 0);
+
     private static ItemStack getDefaultPreferredOreStack(String oreName) {
-        java.util.ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
+        ItemStack cached = DEFAULT_ORE_STACK_CACHE.get(oreName);
+        if (cached != null) {
+            return cached == MISSING_ORE_SENTINEL ? null : cached.copy();
+        }
+        ItemStack result = computeDefaultPreferredOreStack(oreName);
+        DEFAULT_ORE_STACK_CACHE.put(oreName, result != null ? result : MISSING_ORE_SENTINEL);
+        return result;
+    }
+
+    private static ItemStack computeDefaultPreferredOreStack(String oreName) {
+        ArrayList<ItemStack> options = OreDictionary.getOres(oreName);
         if (options == null || options.isEmpty()) {
             return null;
         }
@@ -581,25 +803,10 @@ public class WildcardPatternEntry {
         return options.get(0) == null ? null : options.get(0).copy();
     }
 
-    private static void addDistinctStack(List<ItemStack> stacks, ItemStack candidate) {
-        if (candidate == null) {
-            return;
-        }
-        for (ItemStack existing : stacks) {
-            if (existing == null) {
-                continue;
-            }
-            if (OreDictionary.itemMatches(existing, candidate, false)
-                && ItemStack.areItemStackTagsEqual(existing, candidate)) {
-                return;
-            }
-        }
-        stacks.add(candidate.copy());
-    }
-
-    private static String getOreName(OrePrefixes prefix, Materials material) {
+    private static String getOreName(OrePrefixes prefix, String materialName) {
         String prefixName = getPrefixName(prefix);
-        return prefixName.isEmpty() || material == null ? "" : prefixName + material.mName;
+        String name = materialName == null ? "" : materialName.trim();
+        return prefixName.isEmpty() || name.isEmpty() ? "" : prefixName + name;
     }
 
     private static Materials getAssociatedMaterial(ItemStack stack) {
@@ -610,29 +817,106 @@ public class WildcardPatternEntry {
         return association != null && association.hasValidPrefixMaterialData() ? association.mMaterial.mMaterial : null;
     }
 
-    private static Materials extractMaterialFromOreName(String oreName) {
+    private static String getAssociatedMaterialName(ItemStack stack) {
+        Materials associated = getAssociatedMaterial(stack);
+        if (isRealMaterial(associated) && associated.mName != null && !associated.mName.isEmpty()) {
+            return associated.mName;
+        }
+
+        int[] oreIds = stack == null ? null : OreDictionary.getOreIDs(stack);
+        if (oreIds == null || oreIds.length == 0) {
+            return "";
+        }
+        String best = "";
+        for (int oreId : oreIds) {
+            String candidate = extractMaterialNameFromOreName(OreDictionary.getOreName(oreId));
+            if (!candidate.isEmpty()) {
+                return candidate;
+            }
+        }
+        return best;
+    }
+
+    private static String safeGetDisplayName(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return null;
+        }
+        try {
+            return stack.getDisplayName();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static String getBestOreName(ItemStack stack) {
+        if (stack == null) {
+            return null;
+        }
+        int[] oreIds = OreDictionary.getOreIDs(stack);
+        if (oreIds == null || oreIds.length == 0) {
+            return null;
+        }
+
+        String first = null;
+        String best = null;
+        int bestScore = Integer.MAX_VALUE;
+        int bestLength = Integer.MAX_VALUE;
+        for (int oreId : oreIds) {
+            String oreName = OreDictionary.getOreName(oreId);
+            if (oreName == null || oreName.isEmpty()) {
+                continue;
+            }
+            if (first == null) {
+                first = oreName;
+            }
+            OrePrefixes prefix = extractPrefixFromOreName(oreName);
+            if (prefix == null) {
+                continue;
+            }
+            int score = OreMatch.computeScore(prefix, oreName);
+            if (best == null || score < bestScore || score == bestScore && oreName.length() < bestLength) {
+                best = oreName;
+                bestScore = score;
+                bestLength = oreName.length();
+            }
+        }
+        return best != null ? best : first;
+    }
+
+    private static OrePrefixes extractPrefixFromOreName(String oreName) {
         if (oreName == null || oreName.isEmpty()) {
             return null;
         }
-        Materials bestMatch = null;
+        OrePrefixes bestMatch = null;
         int bestPrefixLength = -1;
         for (OrePrefixes prefix : OrePrefixes.values()) {
             String prefixName = getPrefixName(prefix);
             if (prefixName.isEmpty() || !oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
                 continue;
             }
-            Materials candidate = findMaterialByName(oreName.substring(prefixName.length()));
-            if (candidate != null && prefixName.length() > bestPrefixLength) {
-                bestMatch = candidate;
+            if (prefixName.length() > bestPrefixLength) {
+                bestMatch = prefix;
                 bestPrefixLength = prefixName.length();
             }
         }
         return bestMatch;
     }
 
+    private static String extractMaterialNameFromOreName(String oreName) {
+        OrePrefixes prefix = extractPrefixFromOreName(oreName);
+        if (prefix == null) {
+            return "";
+        }
+        String prefixName = getPrefixName(prefix);
+        if (prefixName.isEmpty() || oreName == null || oreName.length() <= prefixName.length()) {
+            return "";
+        }
+        return oreName.substring(prefixName.length()).trim();
+    }
+
     private static Materials findMaterialByName(String name) {
         if (name == null || name.isEmpty()) {
-            return null;
+            return Materials._NULL;
         }
         String normalized = name.toLowerCase(Locale.ROOT);
         Materials cached = MATERIAL_NAME_CACHE.get(normalized);
@@ -645,7 +929,8 @@ public class WildcardPatternEntry {
             }
             MATERIAL_NAME_CACHE.putIfAbsent(material.mName.toLowerCase(Locale.ROOT), material);
         }
-        return MATERIAL_NAME_CACHE.get(normalized);
+        Materials material = MATERIAL_NAME_CACHE.get(normalized);
+        return material == null ? Materials._NULL : material;
     }
 
     private static final class OreMatch {
@@ -657,6 +942,19 @@ public class WildcardPatternEntry {
             this.prefix = prefix;
             this.oreName = oreName == null ? "" : oreName;
             this.score = computeScore(prefix, this.oreName);
+        }
+
+        private int compareTo(OreMatch other) {
+            if (other == null) {
+                return -1;
+            }
+            if (this.score != other.score) {
+                return Integer.compare(this.score, other.score);
+            }
+            if (this.oreName.length() != other.oreName.length()) {
+                return Integer.compare(this.oreName.length(), other.oreName.length());
+            }
+            return this.oreName.compareToIgnoreCase(other.oreName);
         }
 
         private static int computeScore(OrePrefixes prefix, String oreName) {

@@ -10,7 +10,6 @@ import appeng.api.networking.crafting.ICraftingPatternDetails;
 import com.myname.wildcardpattern.ModItems;
 import com.myname.wildcardpattern.item.WildcardPatternConfig;
 import com.myname.wildcardpattern.item.WildcardPatternState;
-import gregtech.api.enums.Materials;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -41,6 +40,18 @@ public final class WildcardPatternGenerator {
 
     public static int countPatterns(ItemStack stack) {
         return generateAllDetails(stack, null).size();
+    }
+
+    public static int countPreviewPatterns(ItemStack stack) {
+        if (!isWildcardPattern(stack)) {
+            return 0;
+        }
+
+        int count = 0;
+        for (int ruleIndex = 0; ruleIndex < MAX_RULES; ruleIndex++) {
+            count += generateRulePreviewPatterns(stack, ruleIndex).size();
+        }
+        return count;
     }
 
     public static ICraftingPatternDetails getDisplayDetails(ItemStack stack, World world) {
@@ -76,13 +87,18 @@ public final class WildcardPatternGenerator {
     }
 
     public static List<ICraftingPatternDetails> generateRuleDetails(ItemStack stack, World world, int ruleIndex) {
-        List<GeneratedPattern> patterns = generateRulePatterns(stack, ruleIndex);
+        List<GeneratedPattern> patterns = generateRulePreviewPatterns(stack, ruleIndex);
         if (patterns.isEmpty()) {
             return Collections.emptyList();
         }
+
         List<ICraftingPatternDetails> result = new ArrayList<>();
         for (GeneratedPattern pattern : patterns) {
-            ICraftingPatternDetails detail = createDetailForCurrentStack(pattern.patternStack, world);
+            ItemStack generated = createPatternStack(stack, pattern.materialName, pattern.inputStack, pattern.outputStack);
+            if (generated == null) {
+                continue;
+            }
+            ICraftingPatternDetails detail = createDetailForCurrentStack(generated, world);
             if (detail != null) {
                 result.add(detail);
             }
@@ -90,68 +106,7 @@ public final class WildcardPatternGenerator {
         return result;
     }
 
-    public static List<GeneratedPattern> generateRulePatterns(ItemStack stack, int ruleIndex) {
-        return generatePatterns(stack, ruleIndex, true);
-    }
-
     public static List<GeneratedPattern> generateRulePreviewPatterns(ItemStack stack, int ruleIndex) {
-        return generatePatterns(stack, ruleIndex, false);
-    }
-
-    private static List<GeneratedPattern> generatePatterns(ItemStack stack, int ruleIndex, boolean buildPatternStack) {
-        if (!isWildcardPattern(stack)) {
-            return Collections.emptyList();
-        }
-        if (ruleIndex < 0 || ruleIndex >= MAX_RULES) {
-            return Collections.emptyList();
-        }
-
-        List<WildcardPatternEntry> inputs = WildcardPatternState.getInputEntries(stack);
-        List<WildcardPatternEntry> outputs = WildcardPatternState.getOutputEntries(stack);
-        if (ruleIndex >= inputs.size() || ruleIndex >= outputs.size()) {
-            return Collections.emptyList();
-        }
-
-        WildcardPatternEntry input = inputs.get(ruleIndex);
-        WildcardPatternEntry output = outputs.get(ruleIndex);
-        if ((input == null || input.isEmpty()) && (output == null || output.isEmpty())) {
-            return Collections.emptyList();
-        }
-
-        List<GeneratedPattern> result = new ArrayList<>();
-        for (Materials candidate : getCandidateMaterials(stack, ruleIndex)) {
-            List<ItemStack> inputStacks = getGeneratedStacks(input, candidate, stack);
-            List<ItemStack> outputStacks = getGeneratedStacks(output, candidate, stack);
-            for (ItemStack inputStack : inputStacks) {
-                for (ItemStack outputStack : outputStacks) {
-                    if (!WildcardPatternConfig.acceptsCandidate(stack, ruleIndex, candidate, inputStack, outputStack)) {
-                        continue;
-                    }
-                    ItemStack generated = buildPatternStack
-                        ? createPatternStack(stack, candidate.mName, inputStack, outputStack)
-                        : null;
-                    if (!buildPatternStack || generated != null) {
-                        result.add(new GeneratedPattern(candidate.mName, inputStack, outputStack, generated));
-                    }
-                }
-            }
-        }
-        return result;
-    }
-
-    public static List<Materials> getCandidateMaterials(ItemStack stack) {
-        List<Materials> result = new ArrayList<>();
-        for (int ruleIndex = 0; ruleIndex < MAX_RULES; ruleIndex++) {
-            for (Materials material : getCandidateMaterials(stack, ruleIndex)) {
-                if (!result.contains(material)) {
-                    result.add(material);
-                }
-            }
-        }
-        return result;
-    }
-
-    public static List<Materials> getCandidateMaterials(ItemStack stack, int ruleIndex) {
         if (!isWildcardPattern(stack) || ruleIndex < 0 || ruleIndex >= MAX_RULES) {
             return Collections.emptyList();
         }
@@ -168,47 +123,108 @@ public final class WildcardPatternGenerator {
             return Collections.emptyList();
         }
 
-        Iterable<Materials> candidates = collectRuleCandidatePool(input, output);
-        List<Materials> result = new ArrayList<>();
-        for (Materials candidate : candidates) {
-            if (!isRealMaterial(candidate)) {
+        List<GeneratedPattern> result = new ArrayList<>();
+        for (String candidate : collectRuleCandidatePool(input, output)) {
+            if (candidate == null || candidate.trim().isEmpty()) {
                 continue;
             }
-            List<ItemStack> inputStacks = getGeneratedStacks(input, candidate, stack);
-            List<ItemStack> outputStacks = getGeneratedStacks(output, candidate, stack);
-            boolean accepted = false;
-            for (ItemStack inputStack : inputStacks) {
-                for (ItemStack outputStack : outputStacks) {
-                    if (WildcardPatternConfig.acceptsCandidate(stack, ruleIndex, candidate, inputStack, outputStack)) {
-                        accepted = true;
-                        break;
-                    }
-                }
-                if (accepted) {
-                    break;
-                }
+            ItemStack inputStack = input == null || input.isEmpty() ? null : input.createStack(candidate, stack);
+            ItemStack outputStack = output == null || output.isEmpty() ? null : output.createStack(candidate, stack);
+            if ((input != null && !input.isEmpty() && inputStack == null) || (output != null && !output.isEmpty() && outputStack == null)) {
+                continue;
             }
-            if (accepted) {
-                result.add(candidate);
+            if (!WildcardPatternConfig.acceptsCandidate(stack, ruleIndex, candidate, inputStack, outputStack)) {
+                continue;
+            }
+            result.add(new GeneratedPattern(candidate, inputStack, outputStack));
+        }
+        return result;
+    }
+
+    private static Iterable<String> collectRuleCandidatePool(WildcardPatternEntry input, WildcardPatternEntry output) {
+        Set<String> candidates = null;
+        boolean narrowed = false;
+
+        Set<String> inputCandidates = input == null || input.isEmpty() ? java.util.Collections.<String>emptySet() : input.getCandidateMaterials();
+        if (inputCandidates != null && !inputCandidates.isEmpty()) {
+            candidates = mergeCandidatePool(candidates, inputCandidates);
+            narrowed = true;
+        }
+
+        Set<String> outputCandidates = output == null || output.isEmpty() ? java.util.Collections.<String>emptySet() : output.getCandidateMaterials();
+        if (outputCandidates != null && !outputCandidates.isEmpty()) {
+            candidates = mergeCandidatePool(candidates, outputCandidates);
+            narrowed = true;
+        }
+
+        if (narrowed) {
+            return candidates == null ? java.util.Collections.<String>emptySet() : candidates;
+        }
+
+        // Neither entry produced ore-dict candidates. If any non-empty name-mode entry is a
+        // "direct item" (no recognised ore prefix — e.g. a vanilla block), avoid the
+        // O(materials × prefixes) explosion that would come from getAllKnownMaterialNames().
+        // Instead use a single synthetic key; createNameMatchedStack will return the display
+        // stack directly for such entries regardless of what that key says.
+        String directKey = getDirectItemKey(input, output);
+        if (directKey != null) {
+            Set<String> direct = new LinkedHashSet<>();
+            direct.add(directKey);
+            return direct;
+        }
+
+        return WildcardPatternEntry.getAllKnownMaterialNames();
+    }
+
+    private static String getDirectItemKey(WildcardPatternEntry input, WildcardPatternEntry output) {
+        if (input != null && !input.isEmpty() && !input.isOreDict() && input.isDirectItem()) {
+            String key = input.getMatcher();
+            if (!key.isEmpty()) {
+                return key;
+            }
+        }
+        if (output != null && !output.isEmpty() && !output.isOreDict() && output.isDirectItem()) {
+            String key = output.getMatcher();
+            if (!key.isEmpty()) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private static Set<String> mergeCandidatePool(Set<String> current, Set<String> narrowed) {
+        if (current == null) {
+            return new LinkedHashSet<>(narrowed);
+        }
+        current.retainAll(narrowed);
+        return current;
+    }
+
+    public static List<String> getCandidateMaterials(ItemStack stack) {
+        List<String> result = new ArrayList<>();
+        for (int ruleIndex = 0; ruleIndex < MAX_RULES; ruleIndex++) {
+            for (String materialName : getCandidateMaterials(stack, ruleIndex)) {
+                if (!result.contains(materialName)) {
+                    result.add(materialName);
+                }
             }
         }
         return result;
     }
 
-    private static Iterable<Materials> collectRuleCandidatePool(WildcardPatternEntry input, WildcardPatternEntry output) {
-        Set<Materials> oreCandidates = null;
-        if (input != null && input.isOreDict()) {
-            oreCandidates = new LinkedHashSet<>(input.getOreDictCandidateMaterials());
+    public static List<String> getCandidateMaterials(ItemStack stack, int ruleIndex) {
+        List<GeneratedPattern> patterns = generateRulePreviewPatterns(stack, ruleIndex);
+        if (patterns.isEmpty()) {
+            return Collections.emptyList();
         }
-        if (output != null && output.isOreDict()) {
-            Set<Materials> outputCandidates = new LinkedHashSet<>(output.getOreDictCandidateMaterials());
-            if (oreCandidates == null) {
-                oreCandidates = outputCandidates;
-            } else {
-                oreCandidates.retainAll(outputCandidates);
+
+        List<String> result = new ArrayList<>();
+        for (GeneratedPattern pattern : patterns) {
+            if (pattern.materialName != null && !pattern.materialName.isEmpty() && !result.contains(pattern.materialName)) {
+                result.add(pattern.materialName);
             }
         }
-        return oreCandidates != null ? oreCandidates : Materials.getAll();
+        return result;
     }
 
     public static ICraftingPatternDetails createDetailForCurrentStack(ItemStack stack, World world) {
@@ -259,18 +275,6 @@ public final class WildcardPatternGenerator {
         return rewritten;
     }
 
-    private static List<ItemStack> getGeneratedStacks(WildcardPatternEntry entry, Materials candidate, ItemStack template) {
-        if (entry == null || entry.isEmpty()) {
-            return java.util.Collections.singletonList(null);
-        }
-        List<ItemStack> stacks = entry.createStacks(candidate, template);
-        return stacks.isEmpty() ? java.util.Collections.<ItemStack>emptyList() : stacks;
-    }
-
-    private static boolean isRealMaterial(Materials material) {
-        return material != null && material != Materials._NULL && material != Materials.Empty;
-    }
-
     private static ItemStack getRepresentativeEntryStack(List<WildcardPatternEntry> entries, ItemStack fallbackStack) {
         if (entries != null) {
             for (WildcardPatternEntry entry : entries) {
@@ -302,13 +306,11 @@ public final class WildcardPatternGenerator {
         public final String materialName;
         public final ItemStack inputStack;
         public final ItemStack outputStack;
-        public final ItemStack patternStack;
 
-        private GeneratedPattern(String materialName, ItemStack inputStack, ItemStack outputStack, ItemStack patternStack) {
+        private GeneratedPattern(String materialName, ItemStack inputStack, ItemStack outputStack) {
             this.materialName = materialName == null ? "" : materialName;
             this.inputStack = inputStack == null ? null : inputStack.copy();
             this.outputStack = outputStack == null ? null : outputStack.copy();
-            this.patternStack = patternStack == null ? null : patternStack.copy();
         }
     }
 }

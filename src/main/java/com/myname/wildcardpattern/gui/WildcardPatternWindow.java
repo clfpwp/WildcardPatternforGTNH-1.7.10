@@ -17,7 +17,6 @@ import com.gtnewhorizons.modularui.common.widget.DrawableWidget;
 import com.gtnewhorizons.modularui.common.widget.TextWidget;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
-import appeng.api.networking.crafting.ICraftingPatternDetails;
 import com.myname.wildcardpattern.compat.NechSearchCompat;
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
@@ -26,7 +25,6 @@ import com.myname.wildcardpattern.item.WildcardPatternState;
 import com.myname.wildcardpattern.network.MessageUpdateWildcardConfig;
 import com.myname.wildcardpattern.network.WildcardNetwork;
 import cpw.mods.fml.common.registry.GameRegistry;
-import gregtech.api.enums.Materials;
 import gregtech.api.objects.ItemData;
 import gregtech.api.util.GTOreDictUnificator;
 import net.minecraft.entity.player.EntityPlayer;
@@ -125,7 +123,6 @@ public final class WildcardPatternWindow {
             state.globalExclude = "";
             clearStrings(state.ruleIncludes);
             clearStrings(state.ruleExcludes);
-            state.invalidateAllPreviewCaches();
             for (EntryCellRefs ref : refs) {
                 ref.clear();
             }
@@ -225,7 +222,6 @@ public final class WildcardPatternWindow {
             state.outputs.set(row, WildcardPatternEntry.fromStack(null));
             state.ruleIncludes.set(row, "");
             state.ruleExcludes.set(row, "");
-            state.invalidatePreviewRule(row);
             input.clear();
             output.clear();
             state.refreshActivePage();
@@ -250,7 +246,6 @@ public final class WildcardPatternWindow {
                 next.convertToItem();
             }
             entries.set(index, next);
-            state.invalidatePreviewRule(index);
             state.refreshActivePage();
             if (textRef[0] != null) {
                 suppressNextSetter[0] = true;
@@ -274,7 +269,6 @@ public final class WildcardPatternWindow {
             } else {
                 entry.setMatcher(value);
             }
-            state.invalidatePreviewRule(index);
             state.refreshActivePage();
         });
         text.setText(entries.get(index).isEmpty() ? "" : trim(entries.get(index).getLabel(), 11));
@@ -333,7 +327,6 @@ public final class WildcardPatternWindow {
         suppressNextSetter[0] = true;
         text.setText(trim(entry.getLabel(), 11));
         text.markForUpdate();
-        state.invalidatePreviewRule(index);
         state.refreshActivePage();
     }
 
@@ -378,7 +371,7 @@ public final class WildcardPatternWindow {
         addSeparator(builder, state, 18, 81, 406, 2, true);
 
         TextWidget source = new TextWidget("");
-        source.setPos(18, 18);
+        source.setPos(18, 38);
         source.setStringSupplier(() -> EnumChatFormatting.BLACK + state.getPreviewTitle());
         addPreviewWidget(builder, state, source);
 
@@ -405,7 +398,6 @@ public final class WildcardPatternWindow {
                 () -> state.ruleIncludes.get(state.previewRule),
                 value -> {
                     state.ruleIncludes.set(state.previewRule, value == null ? "" : value);
-                    state.invalidatePreviewRule(state.previewRule);
                     state.previewPageIndex = 0;
                     state.refreshActivePage();
                 },
@@ -413,6 +405,22 @@ public final class WildcardPatternWindow {
                 58,
                 206,
                 true);
+
+            ButtonWidget editExclude = button("gui.wildcardpattern.exclude_short");
+            editExclude.setPos(384, 58);
+            editExclude.setSize(48, 18);
+            editExclude.setOnClick((clickData, widget) -> state.openExcludeEditor(state.previewRule));
+            addPreviewWidget(builder, state, editExclude);
+
+            TextWidget excludeSummary = new TextWidget("");
+            excludeSummary.setPos(226, 62);
+            excludeSummary.setScale(0.72f);
+            excludeSummary.setStringSupplier(
+                () -> EnumChatFormatting.DARK_GRAY
+                    + tr("gui.wildcardpattern.exclude_short")
+                    + ": "
+                    + trim(state.getExcludeSummary(state.previewRule), 18));
+            addPreviewWidget(builder, state, excludeSummary);
         }
 
         for (int i = 0; i < PREVIEW_LINES; i++) {
@@ -420,9 +428,8 @@ public final class WildcardPatternWindow {
             TextWidget line = new TextWidget("");
             line.setPos(18, 88 + i * 14);
             line.setStringSupplier(() -> {
-                int absolute = state.previewPageIndex * PREVIEW_LINES + lineIndex;
                 PreviewRow row = state.getPreviewRow(lineIndex);
-                return row != null ? EnumChatFormatting.DARK_GRAY + row.line : "";
+                return row == null ? "" : EnumChatFormatting.DARK_GRAY + row.line;
             });
             addPreviewWidget(builder, state, line);
 
@@ -442,7 +449,11 @@ public final class WildcardPatternWindow {
         ButtonWidget prev = button("<");
         prev.setPos(182, 264);
         prev.setSize(34, 17);
-        prev.setOnClick((clickData, widget) -> state.prevPreviewPage());
+        prev.setOnClick((clickData, widget) -> {
+            if (state.previewPageIndex > 0) {
+                state.previewPageIndex--;
+            }
+        });
         addPreviewWidget(builder, state, prev);
 
         TextWidget page = new TextWidget("");
@@ -457,7 +468,11 @@ public final class WildcardPatternWindow {
         ButtonWidget next = button(">");
         next.setPos(304, 264);
         next.setSize(34, 17);
-        next.setOnClick((clickData, widget) -> state.nextPreviewPage());
+        next.setOnClick((clickData, widget) -> {
+            if (state.previewPageIndex + 1 < state.getPreviewPageCount()) {
+                state.previewPageIndex++;
+            }
+        });
         addPreviewWidget(builder, state, next);
     }
 
@@ -508,19 +523,17 @@ public final class WildcardPatternWindow {
 
         for (int i = 0; i < EXCLUDE_LINES; i++) {
             final int lineIndex = i;
-            int rowY = 144 + i * 14;
-            addExcludeCard(builder, state, 18, rowY, 394, 13);
             TextWidget line = new TextWidget("");
-            line.setPos(24, rowY + 3);
+            line.setPos(18, 144 + i * 14);
             line.setScale(0.72f);
             line.setStringSupplier(() -> {
                 String token = state.getCurrentExcludeToken(lineIndex);
-                return token.isEmpty() ? "" : EnumChatFormatting.DARK_GRAY + trimMiddle(token, 48);
+                return token.isEmpty() ? "" : EnumChatFormatting.DARK_GRAY + "- " + trimMiddle(token, 44);
             });
             addExcludeWidget(builder, state, line);
 
             ButtonWidget delete = button("X");
-            delete.setPos(388, rowY + 1);
+            delete.setPos(404, 142 + i * 14);
             delete.setSize(20, 12);
             delete.setOnClick((clickData, widget) -> state.removeCurrentExcludeToken(lineIndex));
             addExcludeWidget(builder, state, delete);
@@ -537,7 +550,7 @@ public final class WildcardPatternWindow {
         addExcludeWidget(builder, state, prev);
 
         TextWidget page = new TextWidget("");
-        page.setPos(64, 268);
+        page.setPos(62, 268);
         page.setStringSupplier(() -> EnumChatFormatting.BLACK
             + StatCollector.translateToLocalFormatted(
                 "gui.wildcardpattern.page",
@@ -546,7 +559,7 @@ public final class WildcardPatternWindow {
         addExcludeWidget(builder, state, page);
 
         ButtonWidget next = button(">");
-        next.setPos(140, 264);
+        next.setPos(138, 264);
         next.setSize(34, 17);
         next.setOnClick((clickData, widget) -> {
             if (state.excludePageIndex + 1 < state.getExcludePageCount()) {
@@ -558,7 +571,10 @@ public final class WildcardPatternWindow {
         ButtonWidget clear = button("gui.wildcardpattern.clear");
         clear.setPos(286, 264);
         clear.setSize(64, 17);
-        clear.setOnClick((clickData, widget) -> state.setCurrentExcludeValue(""));
+        clear.setOnClick((clickData, widget) -> {
+            state.excludeDraft = "";
+            state.setCurrentExcludeValue("");
+        });
         addExcludeWidget(builder, state, clear);
 
         ButtonWidget back = button("gui.wildcardpattern.back");
@@ -967,26 +983,6 @@ public final class WildcardPatternWindow {
         addDedupeWidget(builder, state, border);
     }
 
-    private static void addExcludeCard(
-        ModularWindow.Builder builder,
-        WindowState state,
-        int x,
-        int y,
-        int width,
-        int height) {
-        DrawableWidget shadow = new DrawableWidget();
-        shadow.setPos(x + 1, y + 1);
-        shadow.setSize(width, height);
-        shadow.setDrawable(new Rectangle().setColor(CARD_SHADOW_COLOR));
-        addExcludeWidget(builder, state, shadow);
-
-        DrawableWidget border = new DrawableWidget();
-        border.setPos(x, y);
-        border.setSize(width, height);
-        border.setDrawable(WildcardPatternWindow::drawDedupeCard);
-        addExcludeWidget(builder, state, border);
-    }
-
     private static void addExcludePanel(
         ModularWindow.Builder builder,
         WindowState state,
@@ -1058,8 +1054,8 @@ public final class WildcardPatternWindow {
         builder.widget(widget);
     }
 
-    private static String summarize(ItemStack input, ItemStack output) {
-        return trim(formatPreviewStack(input) + " -> " + formatPreviewStack(output), 64);
+    private static String summarize(ItemStack inputStack, ItemStack outputStack) {
+        return trim(formatPreviewStack(inputStack) + " -> " + formatPreviewStack(outputStack), 64);
     }
 
     private static String formatPreviewStack(ItemStack stack) {
@@ -1319,15 +1315,15 @@ public final class WildcardPatternWindow {
         private final List<String> ruleIncludes;
         private final List<String> ruleExcludes;
         private final List<PreviewRow> previewRows = new ArrayList<>();
-        private final java.util.Map<Integer, List<PreviewRow>> previewRuleCaches = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
+        private volatile List<PreviewRow> asyncPreviewResult = null;
+        private Thread asyncPreviewThread = null;
 
         private String globalExclude;
         private String previewSearch = "";
         private String dedupeSearch = "";
         private String excludeDraft = "";
-        private boolean previewFullyLoaded;
         private boolean previewPage;
         private boolean dedupePage;
         private boolean excludePage;
@@ -1367,7 +1363,6 @@ public final class WildcardPatternWindow {
             ensureSize(this.outputs, RULE_ROWS);
             while (this.ruleIncludes.size() < RULE_ROWS) this.ruleIncludes.add("");
             while (this.ruleExcludes.size() < RULE_ROWS) this.ruleExcludes.add("");
-            loadPersistedPreviewCaches(stack);
         }
 
         private void openPreview(int rule) {
@@ -1421,10 +1416,11 @@ public final class WildcardPatternWindow {
             String next = value == null ? "" : value;
             if (this.excludeRule >= 0) {
                 this.ruleExcludes.set(this.excludeRule, next);
-                invalidatePreviewRule(this.excludeRule);
             } else {
                 this.globalExclude = next;
-                invalidateAllPreviewCaches();
+            }
+            if (next.trim().isEmpty()) {
+                this.excludePageIndex = 0;
             }
             refreshActivePage();
         }
@@ -1525,7 +1521,6 @@ public final class WildcardPatternWindow {
             }
             scaleEntry(this.inputs.get(rule), multiplying);
             scaleEntry(this.outputs.get(rule), multiplying);
-            invalidatePreviewRule(rule);
             refreshActivePage();
         }
 
@@ -1550,27 +1545,61 @@ public final class WildcardPatternWindow {
 
         private void rebuildPreview() {
             this.previewRows.clear();
-            for (Integer rule : getPreviewRules()) {
-                this.previewRows.addAll(getPreviewRowsForDisplay(rule));
+            // Cancel any in-progress background build
+            Thread prev = this.asyncPreviewThread;
+            if (prev != null) {
+                prev.interrupt();
+                this.asyncPreviewThread = null;
             }
-            applyPreviewFilter();
-            if (this.previewPageIndex >= getPreviewPageCount()) {
-                this.previewPageIndex = Math.max(0, getPreviewPageCount() - 1);
-            }
-        }
+            this.asyncPreviewResult = null;
 
-        private void prevPreviewPage() {
-            if (this.previewPageIndex <= 0) {
+            // Build preview ItemStacks synchronously on main thread (requires player inventory access)
+            final int ruleSnapshot = this.previewRule;
+            final String filterSnapshot = this.previewSearch == null ? "" : this.previewSearch.trim();
+            final java.util.LinkedHashMap<Integer, ItemStack> stacks = new java.util.LinkedHashMap<>();
+            if (ruleSnapshot >= 0) {
+                ItemStack s = buildStack(ruleSnapshot);
+                if (s != null) stacks.put(ruleSnapshot, s);
+            } else {
+                for (int r = 0; r < RULE_ROWS; r++) {
+                    ItemStack s = buildStack(r);
+                    if (s != null) stacks.put(r, s);
+                }
+            }
+
+            if (stacks.isEmpty()) {
                 return;
             }
-            this.previewPageIndex--;
-        }
 
-        private void nextPreviewPage() {
-            if (this.previewPageIndex + 1 >= getPreviewPageCount()) {
-                return;
-            }
-            this.previewPageIndex++;
+            // Perform expensive pattern generation on a background thread
+            Thread thread = new Thread(() -> {
+                List<PreviewRow> result = new ArrayList<>();
+                for (java.util.Map.Entry<Integer, ItemStack> entry : stacks.entrySet()) {
+                    if (Thread.currentThread().isInterrupted()) return;
+                    int rule = entry.getKey();
+                    List<WildcardPatternGenerator.GeneratedPattern> patterns =
+                        WildcardPatternGenerator.generateRulePreviewPatterns(entry.getValue(), rule);
+                    for (WildcardPatternGenerator.GeneratedPattern pattern : patterns) {
+                        if (Thread.currentThread().isInterrupted()) return;
+                        String materialName = pattern.materialName;
+                        String line = "R" + (rule + 1) + " " + summarize(pattern.inputStack, pattern.outputStack);
+                        String excludeToken = getPreviewExcludeToken(pattern.inputStack, pattern.outputStack, materialName);
+                        if (!filterSnapshot.isEmpty()
+                            && !NechSearchCompat.matches(line, filterSnapshot)
+                            && !NechSearchCompat.matches(materialName, filterSnapshot)
+                            && !NechSearchCompat.matches(excludeToken, filterSnapshot)) {
+                            continue;
+                        }
+                        result.add(new PreviewRow(rule, materialName, excludeToken, line));
+                    }
+                }
+                if (!Thread.currentThread().isInterrupted()) {
+                    this.asyncPreviewResult = result;
+                }
+            }, "WildcardPreviewBuild");
+            thread.setDaemon(true);
+            thread.start();
+            this.asyncPreviewThread = thread;
         }
 
         private void rebuildDedupe() {
@@ -1602,33 +1631,72 @@ public final class WildcardPatternWindow {
             }
         }
 
+        private PreviewRow getPreviewRow(int lineIndex) {
+            // Apply background result when ready — called from string supplier each render frame
+            List<PreviewRow> pending = this.asyncPreviewResult;
+            if (pending != null) {
+                this.asyncPreviewResult = null;
+                this.previewRows.clear();
+                this.previewRows.addAll(pending);
+                if (this.previewPageIndex >= getPreviewPageCount()) {
+                    this.previewPageIndex = Math.max(0, getPreviewPageCount() - 1);
+                }
+            }
+            int absolute = this.previewPageIndex * PREVIEW_LINES + lineIndex;
+            return absolute >= 0 && absolute < this.previewRows.size() ? this.previewRows.get(absolute) : null;
+        }
+
         private DedupeRow getDedupeRow(int lineIndex) {
             int absolute = this.dedupePageIndex * DEDUPE_LINES + lineIndex;
             return absolute >= 0 && absolute < this.dedupeRows.size() ? this.dedupeRows.get(absolute) : null;
         }
 
         private void collectDuplicateRows(ItemStack preview, List<DedupeRow> rows, int rule) {
-            for (Materials material : WildcardPatternGenerator.getCandidateMaterials(preview, rule)) {
-                String inputOreName = getOreName(this.inputs.get(rule), material);
-                String outputOreName = getOreName(this.outputs.get(rule), material);
+            for (String materialName : WildcardPatternGenerator.getCandidateMaterials(preview, rule)) {
+                String inputOreName = getOreName(this.inputs.get(rule), materialName);
+                String outputOreName = getOreName(this.outputs.get(rule), materialName);
                 boolean inputDuplicate = hasDuplicateOptions(inputOreName);
                 boolean outputDuplicate = hasDuplicateOptions(outputOreName);
                 if (!inputDuplicate && !outputDuplicate) {
                     continue;
                 }
-                rows.add(new DedupeRow(rule, material.mName, inputOreName, outputOreName, inputDuplicate, outputDuplicate));
+                rows.add(new DedupeRow(rule, materialName, inputOreName, outputOreName, inputDuplicate, outputDuplicate));
             }
         }
 
-        private String getOreName(WildcardPatternEntry entry, Materials material) {
+        private String getOreName(WildcardPatternEntry entry, String materialName) {
             if (entry == null || entry.isEmpty()) {
                 return null;
             }
-            ItemData association = GTOreDictUnificator.getAssociation(entry.getDisplayStack());
-            if (association == null || !association.hasValidPrefixMaterialData()) {
+            ItemStack displayStack = entry.getDisplayStack();
+            if (displayStack == null) {
                 return null;
             }
-            return getPrefixName(association.mPrefix) + material.mName;
+            ItemData association = GTOreDictUnificator.getAssociation(displayStack);
+            if (association != null && association.hasValidPrefixMaterialData()) {
+                return getPrefixName(association.mPrefix) + materialName;
+            }
+            // Fallback for GT++ items not registered in the GT5 unificator
+            int[] oreIds = OreDictionary.getOreIDs(displayStack);
+            if (oreIds == null || oreIds.length == 0) {
+                return null;
+            }
+            String bestPrefix = null;
+            int bestPrefixLen = 0;
+            for (int oreId : oreIds) {
+                String oreName = OreDictionary.getOreName(oreId);
+                if (oreName == null || oreName.isEmpty()) continue;
+                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
+                    String prefixName = getPrefixName(prefix);
+                    if (!prefixName.isEmpty()
+                        && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())
+                        && prefixName.length() > bestPrefixLen) {
+                        bestPrefix = prefixName;
+                        bestPrefixLen = prefixName.length();
+                    }
+                }
+            }
+            return bestPrefix == null ? null : bestPrefix + materialName;
         }
 
         private boolean hasDuplicateOptions(String oreName) {
@@ -1678,7 +1746,6 @@ public final class WildcardPatternWindow {
             if (next != null) {
                 this.preferredOreStacks.put(oreName, next.copy());
             }
-            invalidateAllPreviewCaches();
             rebuildPreview();
             rebuildDedupe();
         }
@@ -1705,129 +1772,6 @@ public final class WildcardPatternWindow {
             return options.get(0);
         }
 
-        private void collectPreviewLines(int rule, List<PreviewRow> target, String filter) {
-            collectPreviewLines(rule, target, filter, Integer.MAX_VALUE);
-        }
-
-        private boolean collectPreviewLines(int rule, List<PreviewRow> target, String filter, int maxRows) {
-            ItemStack preview = buildStack(rule);
-            if (preview == null) {
-                return true;
-            }
-
-            List<WildcardPatternEntry> previewInputs = WildcardPatternState.getInputEntries(preview);
-            List<WildcardPatternEntry> previewOutputs = WildcardPatternState.getOutputEntries(preview);
-            WildcardPatternEntry input = rule >= 0 && rule < previewInputs.size() ? previewInputs.get(rule) : null;
-            WildcardPatternEntry output = rule >= 0 && rule < previewOutputs.size() ? previewOutputs.get(rule) : null;
-            if ((input == null || input.isEmpty()) && (output == null || output.isEmpty())) {
-                return true;
-            }
-
-            for (Materials candidate : WildcardPatternGenerator.getCandidateMaterials(preview, rule)) {
-                List<ItemStack> inputStacks = input == null || input.isEmpty()
-                    ? java.util.Collections.<ItemStack>singletonList(null)
-                    : input.createStacks(candidate, preview);
-                List<ItemStack> outputStacks = output == null || output.isEmpty()
-                    ? java.util.Collections.<ItemStack>singletonList(null)
-                    : output.createStacks(candidate, preview);
-                for (ItemStack inputStack : inputStacks) {
-                    for (ItemStack outputStack : outputStacks) {
-                        if (!WildcardPatternConfig.acceptsCandidate(preview, rule, candidate, inputStack, outputStack)) {
-                            continue;
-                        }
-                        String line = "R" + (rule + 1) + " " + summarize(inputStack, outputStack);
-                        if (!filter.isEmpty() && !NechSearchCompat.matches(line, filter)
-                            && !NechSearchCompat.matches(candidate.mName, filter)) {
-                            continue;
-                        }
-                        target.add(
-                            new PreviewRow(
-                                rule,
-                                candidate.mName,
-                                getPreviewExcludeToken(inputStack, outputStack, candidate.mName),
-                                line));
-                        if (target.size() >= maxRows) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-
-        private List<Integer> getPreviewRules() {
-            List<Integer> rules = new ArrayList<>();
-            if (this.previewRule >= 0) {
-                rules.add(this.previewRule);
-                return rules;
-            }
-            for (int rule = 0; rule < RULE_ROWS; rule++) {
-                rules.add(rule);
-            }
-            return rules;
-        }
-
-        private String getPreviewFilter() {
-            return this.previewSearch == null ? "" : this.previewSearch.trim();
-        }
-
-        private void invalidatePreviewRule(int rule) {
-            this.previewRuleCaches.remove(Integer.valueOf(rule));
-        }
-
-        private void invalidateAllPreviewCaches() {
-            this.previewRuleCaches.clear();
-        }
-
-        private void loadPersistedPreviewCaches(ItemStack stack) {
-            if (stack == null) {
-                return;
-            }
-            java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> cache = WildcardPatternState
-                .getPreviewCache(stack);
-            for (java.util.Map.Entry<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> entry : cache.entrySet()) {
-                java.util.List<PreviewRow> rows = new ArrayList<>();
-                for (WildcardPatternState.PreviewCacheEntry row : entry.getValue()) {
-                    rows.add(new PreviewRow(entry.getKey().intValue(), row.materialName, row.excludeToken, row.line));
-                }
-                this.previewRuleCaches.put(entry.getKey(), rows);
-            }
-        }
-
-        private java.util.List<PreviewRow> getPreviewRowsForDisplay(int rule) {
-            java.util.List<PreviewRow> rows = this.previewRuleCaches.get(Integer.valueOf(rule));
-            if (rows != null) {
-                return rows;
-            }
-            java.util.List<PreviewRow> built = new ArrayList<>();
-            collectPreviewLines(rule, built, "");
-            this.previewRuleCaches.put(Integer.valueOf(rule), built);
-            return built;
-        }
-
-        private void applyPreviewFilter() {
-            String filter = getPreviewFilter();
-            if (filter.isEmpty()) {
-                return;
-            }
-            java.util.List<PreviewRow> filtered = new ArrayList<>();
-            for (PreviewRow row : this.previewRows) {
-                if (row == null) {
-                    continue;
-                }
-                if (NechSearchCompat.matches(row.line, filter) || NechSearchCompat.matches(row.materialName, filter)) {
-                    filtered.add(row);
-                }
-            }
-            this.previewRows.clear();
-            this.previewRows.addAll(filtered);
-        }
-
-        private PreviewRow getPreviewRow(int lineIndex) {
-            int absolute = this.previewPageIndex * PREVIEW_LINES + lineIndex;
-            return absolute >= 0 && absolute < this.previewRows.size() ? this.previewRows.get(absolute) : null;
-        }
-
         private void excludePreviewRow(int lineIndex) {
             PreviewRow row = getPreviewRow(lineIndex);
             if (row == null) {
@@ -1836,6 +1780,7 @@ public final class WildcardPatternWindow {
             appendRuleExclude(row.rule, row.excludeToken.isEmpty() ? row.materialName : row.excludeToken);
             rebuildPreview();
         }
+
 
         private String getPreviewExcludeToken(ItemStack inputStack, ItemStack outputStack, String materialName) {
             String inputOre = getAssociatedOreName(inputStack);
@@ -1854,38 +1799,52 @@ public final class WildcardPatternWindow {
                 return null;
             }
             ItemData association = GTOreDictUnificator.getAssociation(stack);
-            if (association == null || !association.hasValidPrefixMaterialData()) {
+            if (association != null && association.hasValidPrefixMaterialData()) {
+                return getPrefixName(association.mPrefix) + association.mMaterial.mMaterial.mName;
+            }
+            // Fallback for GT++ items not registered in the GT5 unificator
+            int[] oreIds = OreDictionary.getOreIDs(stack);
+            if (oreIds == null || oreIds.length == 0) {
                 return null;
             }
-            return getPrefixName(association.mPrefix) + association.mMaterial.mMaterial.mName;
+            for (int oreId : oreIds) {
+                String oreName = OreDictionary.getOreName(oreId);
+                if (oreName == null || oreName.isEmpty()) continue;
+                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
+                    String prefixName = getPrefixName(prefix);
+                    if (!prefixName.isEmpty() && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
+                        return oreName;
+                    }
+                }
+            }
+            return null;
         }
 
-        private void appendRuleExclude(int rule, String materialName) {
+        private void appendRuleExclude(int rule, String value) {
             if (rule < 0 || rule >= this.ruleExcludes.size()) {
                 return;
             }
-            String token = materialName == null ? "" : materialName.trim();
+            String token = value == null ? "" : value.trim();
             if (token.isEmpty()) {
                 return;
             }
-            List<String> parts = new ArrayList<>();
+            List<String> tokens = new ArrayList<>();
             String current = this.ruleExcludes.get(rule);
             if (current != null && !current.trim().isEmpty()) {
                 for (String part : current.split("[,;\\s]+")) {
                     String trimmed = part == null ? "" : part.trim();
                     if (!trimmed.isEmpty()) {
-                        parts.add(trimmed);
+                        tokens.add(trimmed);
                     }
                 }
             }
-            for (String part : parts) {
-                if (part.equalsIgnoreCase(token)) {
+            for (String existing : tokens) {
+                if (existing.equalsIgnoreCase(token)) {
                     return;
                 }
             }
-            parts.add(token);
-            this.ruleExcludes.set(rule, String.join(" ", parts));
-            invalidatePreviewRule(rule);
+            tokens.add(token);
+            this.ruleExcludes.set(rule, String.join(" ", tokens));
         }
 
 
@@ -1895,29 +1854,10 @@ public final class WildcardPatternWindow {
             if (preview == null || held == null) {
                 return;
             }
-            ensurePreviewCaches();
-            WildcardPatternState.setPreviewCache(preview, exportPreviewCaches());
+            WildcardPatternState.setExpandedPatternCount(preview, WildcardPatternGenerator.countPreviewPatterns(preview));
             WildcardPatternGenerator.markAsWildcard(held);
             WildcardPatternState.applyConfig(held, WildcardPatternState.exportConfig(preview));
             WildcardNetwork.CHANNEL.sendToServer(new MessageUpdateWildcardConfig(this.slot, WildcardPatternState.exportConfig(preview)));
-        }
-
-        private void ensurePreviewCaches() {
-            for (int rule = 0; rule < RULE_ROWS; rule++) {
-                getPreviewRowsForDisplay(rule);
-            }
-        }
-
-        private java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> exportPreviewCaches() {
-            java.util.Map<Integer, java.util.List<WildcardPatternState.PreviewCacheEntry>> result = new java.util.LinkedHashMap<>();
-            for (java.util.Map.Entry<Integer, java.util.List<PreviewRow>> entry : this.previewRuleCaches.entrySet()) {
-                java.util.List<WildcardPatternState.PreviewCacheEntry> rows = new ArrayList<>();
-                for (PreviewRow row : entry.getValue()) {
-                    rows.add(new WildcardPatternState.PreviewCacheEntry(row.materialName, row.excludeToken, row.line));
-                }
-                result.put(entry.getKey(), rows);
-            }
-            return result;
         }
 
         private ItemStack buildStack(Integer onlyRule) {

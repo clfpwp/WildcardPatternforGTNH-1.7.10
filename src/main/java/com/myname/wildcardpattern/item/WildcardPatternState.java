@@ -1,9 +1,7 @@
 package com.myname.wildcardpattern.item;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
 
@@ -16,7 +14,7 @@ public final class WildcardPatternState {
 
     private static final String KEY_INPUT_COMPONENTS = "WildcardInputComponents";
     private static final String KEY_OUTPUT_COMPONENTS = "WildcardOutputComponents";
-    private static final String KEY_PREVIEW_CACHE = "WildcardPreviewCache";
+    private static final String KEY_EXPANDED_PATTERN_COUNT = "WildcardExpandedPatternCount";
 
     private WildcardPatternState() {}
 
@@ -52,6 +50,18 @@ public final class WildcardPatternState {
 
     public static void setOutputEntries(ItemStack stack, List<WildcardPatternEntry> entries) {
         getOrCreateTag(stack).setTag(KEY_OUTPUT_COMPONENTS, writeEntries(entries));
+    }
+
+    public static int getExpandedPatternCount(ItemStack stack) {
+        NBTTagCompound tag = stack == null ? null : stack.getTagCompound();
+        return tag == null || !tag.hasKey(KEY_EXPANDED_PATTERN_COUNT) ? 0 : Math.max(0, tag.getInteger(KEY_EXPANDED_PATTERN_COUNT));
+    }
+
+    public static void setExpandedPatternCount(ItemStack stack, int count) {
+        if (stack == null) {
+            return;
+        }
+        getOrCreateTag(stack).setInteger(KEY_EXPANDED_PATTERN_COUNT, Math.max(0, count));
     }
 
     public static void applyBitModification(ItemStack stack, int bitMultiplier) {
@@ -90,7 +100,7 @@ public final class WildcardPatternState {
         copyIfPresent(source, exported, "WildcardRuleIncludeMaterials");
         copyIfPresent(source, exported, "WildcardRuleExcludeMaterials");
         copyIfPresent(source, exported, "WildcardOreDictPreferences");
-        copyIfPresent(source, exported, KEY_PREVIEW_CACHE);
+        copyIfPresent(source, exported, KEY_EXPANDED_PATTERN_COUNT);
         return exported;
     }
 
@@ -106,67 +116,7 @@ public final class WildcardPatternState {
         copyIfPresent(config, tag, "WildcardRuleIncludeMaterials");
         copyIfPresent(config, tag, "WildcardRuleExcludeMaterials");
         copyIfPresent(config, tag, "WildcardOreDictPreferences");
-        copyIfPresent(config, tag, KEY_PREVIEW_CACHE);
-    }
-
-    public static Map<Integer, List<PreviewCacheEntry>> getPreviewCache(ItemStack stack) {
-        Map<Integer, List<PreviewCacheEntry>> result = new LinkedHashMap<>();
-        if (stack == null || stack.getTagCompound() == null) {
-            return result;
-        }
-        NBTTagCompound tag = stack.getTagCompound();
-        if (!tag.hasKey(KEY_PREVIEW_CACHE, NBT.TAG_LIST)) {
-            return result;
-        }
-        NBTTagList rules = tag.getTagList(KEY_PREVIEW_CACHE, NBT.TAG_COMPOUND);
-        for (int index = 0; index < rules.tagCount(); index++) {
-            NBTTagCompound ruleTag = rules.getCompoundTagAt(index);
-            int rule = ruleTag.getInteger("Rule");
-            NBTTagList rows = ruleTag.getTagList("Rows", NBT.TAG_COMPOUND);
-            List<PreviewCacheEntry> entries = new ArrayList<>();
-            for (int rowIndex = 0; rowIndex < rows.tagCount(); rowIndex++) {
-                NBTTagCompound rowTag = rows.getCompoundTagAt(rowIndex);
-                entries.add(
-                    new PreviewCacheEntry(
-                        rowTag.getString("Material"),
-                        rowTag.getString("Exclude"),
-                        rowTag.getString("Line")));
-            }
-            result.put(Integer.valueOf(rule), entries);
-        }
-        return result;
-    }
-
-    public static void setPreviewCache(ItemStack stack, Map<Integer, List<PreviewCacheEntry>> cache) {
-        if (stack == null) {
-            return;
-        }
-        NBTTagList rules = new NBTTagList();
-        if (cache != null) {
-            for (Map.Entry<Integer, List<PreviewCacheEntry>> entry : cache.entrySet()) {
-                if (entry == null || entry.getKey() == null) {
-                    continue;
-                }
-                NBTTagCompound ruleTag = new NBTTagCompound();
-                ruleTag.setInteger("Rule", entry.getKey().intValue());
-                NBTTagList rows = new NBTTagList();
-                if (entry.getValue() != null) {
-                    for (PreviewCacheEntry row : entry.getValue()) {
-                        if (row == null) {
-                            continue;
-                        }
-                        NBTTagCompound rowTag = new NBTTagCompound();
-                        rowTag.setString("Material", row.materialName == null ? "" : row.materialName);
-                        rowTag.setString("Exclude", row.excludeToken == null ? "" : row.excludeToken);
-                        rowTag.setString("Line", row.line == null ? "" : row.line);
-                        rows.appendTag(rowTag);
-                    }
-                }
-                ruleTag.setTag("Rows", rows);
-                rules.appendTag(ruleTag);
-            }
-        }
-        getOrCreateTag(stack).setTag(KEY_PREVIEW_CACHE, rules);
+        copyIfPresent(config, tag, KEY_EXPANDED_PATTERN_COUNT);
     }
 
     private static List<WildcardPatternEntry> getEntries(ItemStack stack, String key) {
@@ -253,17 +203,5 @@ public final class WildcardPatternState {
             stack.setTagCompound(new NBTTagCompound());
         }
         return stack.getTagCompound();
-    }
-
-    public static final class PreviewCacheEntry {
-        public final String materialName;
-        public final String excludeToken;
-        public final String line;
-
-        public PreviewCacheEntry(String materialName, String excludeToken, String line) {
-            this.materialName = materialName == null ? "" : materialName;
-            this.excludeToken = excludeToken == null ? "" : excludeToken;
-            this.line = line == null ? "" : line;
-        }
     }
 }

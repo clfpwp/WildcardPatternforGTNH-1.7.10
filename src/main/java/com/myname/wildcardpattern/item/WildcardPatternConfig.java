@@ -9,14 +9,15 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
 import gregtech.api.objects.ItemData;
-import gregtech.api.enums.Materials;
 import gregtech.api.util.GTOreDictUnificator;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraftforge.common.util.Constants.NBT;
+import net.minecraftforge.oredict.OreDictionary;
 
 public final class WildcardPatternConfig {
 
@@ -123,6 +124,26 @@ public final class WildcardPatternConfig {
         return result;
     }
 
+    public static boolean acceptsCandidate(
+        ItemStack stack,
+        int ruleIndex,
+        String candidateName,
+        ItemStack inputStack,
+        ItemStack outputStack) {
+        Set<String> candidateTerms = collectCandidateTerms(candidateName, inputStack, outputStack);
+        if (candidateTerms.isEmpty()) {
+            return false;
+        }
+        if (matchesList(getGlobalExcludeMaterials(stack), candidateTerms)) {
+            return false;
+        }
+        String includeValue = getRuleIncludeMaterials(stack, ruleIndex);
+        if (!includeValue.isEmpty() && !matchesList(includeValue, candidateTerms)) {
+            return false;
+        }
+        return !matchesList(getRuleExcludeMaterials(stack, ruleIndex), candidateTerms);
+    }
+
     public static boolean acceptsMaterial(ItemStack stack, int ruleIndex, Materials material) {
         return acceptsCandidate(stack, ruleIndex, material, null, null);
     }
@@ -148,53 +169,6 @@ public final class WildcardPatternConfig {
         }
 
         return !matchesList(getRuleExcludeMaterials(stack, ruleIndex), candidateTerms);
-    }
-
-    private static Set<String> collectCandidateTerms(Materials material, ItemStack inputStack, ItemStack outputStack) {
-        Set<String> result = new LinkedHashSet<>();
-        String materialName = getMaterialName(material);
-        if (materialName.length() > 0) {
-            result.add(materialName);
-        }
-        addStackTerms(result, inputStack);
-        addStackTerms(result, outputStack);
-        return result;
-    }
-
-    private static void addStackTerms(Set<String> result, ItemStack stack) {
-        if (stack == null) {
-            return;
-        }
-        String displayName = normalizeMaterialName(stack.getDisplayName());
-        if (!displayName.isEmpty()) {
-            result.add(displayName);
-        }
-        ItemData association = GTOreDictUnificator.getAssociation(stack);
-        if (association == null || !association.hasValidPrefixMaterialData()) {
-            return;
-        }
-        OrePrefixes prefix = association.mPrefix;
-        Materials material = association.mMaterial.mMaterial;
-        if (prefix == null || material == null || material.mName == null || material.mName.isEmpty()) {
-            return;
-        }
-        String oreName = normalizeMaterialName(getPrefixName(prefix) + material.mName);
-        if (!oreName.isEmpty()) {
-            result.add(oreName);
-        }
-    }
-
-    private static String getPrefixName(OrePrefixes prefix) {
-        if (prefix == null) {
-            return "";
-        }
-        try {
-            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
-        } catch (Exception ignored) {}
-        try {
-            return (String) prefix.getClass().getMethod("name").invoke(prefix);
-        } catch (Exception ignored) {}
-        return prefix.toString();
     }
 
     public static List<String> getRuleIncludeList(ItemStack stack, int size) {
@@ -244,7 +218,7 @@ public final class WildcardPatternConfig {
             return result;
         }
 
-        String[] parts = value.split("[,;，；\\s]+");
+        String[] parts = value.split("[,;锛岋紱\\s]+");
         for (String part : parts) {
             String normalized = normalizeMaterialName(part);
             if (normalized.length() > 0) {
@@ -277,6 +251,72 @@ public final class WildcardPatternConfig {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
+    private static Set<String> collectCandidateTerms(String candidateName, ItemStack inputStack, ItemStack outputStack) {
+        Set<String> result = new LinkedHashSet<>();
+        String materialName = normalizeMaterialName(candidateName);
+        if (!materialName.isEmpty()) {
+            result.add(materialName);
+        }
+        addStackTerms(result, inputStack);
+        addStackTerms(result, outputStack);
+        return result;
+    }
+
+    private static Set<String> collectCandidateTerms(Materials material, ItemStack inputStack, ItemStack outputStack) {
+        Set<String> result = new LinkedHashSet<>();
+        String materialName = getMaterialName(material);
+        if (!materialName.isEmpty()) {
+            result.add(materialName);
+        }
+        addStackTerms(result, inputStack);
+        addStackTerms(result, outputStack);
+        return result;
+    }
+
+    private static void addStackTerms(Set<String> result, ItemStack stack) {
+        if (stack == null) {
+            return;
+        }
+        String displayName = normalizeMaterialName(stack.getDisplayName());
+        if (!displayName.isEmpty()) {
+            result.add(displayName);
+        }
+        ItemData association = GTOreDictUnificator.getAssociation(stack);
+        if (association != null && association.hasValidPrefixMaterialData()) {
+            OrePrefixes prefix = association.mPrefix;
+            Materials material = association.mMaterial == null ? null : association.mMaterial.mMaterial;
+            if (prefix != null && material != null && material.mName != null && !material.mName.isEmpty()) {
+                String oreName = normalizeMaterialName(getPrefixName(prefix) + material.mName);
+                if (!oreName.isEmpty()) {
+                    result.add(oreName);
+                }
+            }
+        } else {
+            // Fallback for GT++ items not registered in the GT5 unificator
+            int[] oreIds = OreDictionary.getOreIDs(stack);
+            if (oreIds != null) {
+                for (int oreId : oreIds) {
+                    String oreName = OreDictionary.getOreName(oreId);
+                    if (oreName != null && !oreName.isEmpty()) {
+                        result.add(normalizeMaterialName(oreName));
+                    }
+                }
+            }
+        }
+    }
+
+    private static String getPrefixName(OrePrefixes prefix) {
+        if (prefix == null) {
+            return "";
+        }
+        try {
+            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
+        } catch (Exception ignored) {}
+        try {
+            return (String) prefix.getClass().getMethod("name").invoke(prefix);
+        } catch (Exception ignored) {}
+        return prefix.toString();
+    }
 
     private static boolean matchesList(String value, String materialName) {
         if (materialName == null || materialName.isEmpty()) {
@@ -304,7 +344,7 @@ public final class WildcardPatternConfig {
         if (value == null || value.trim().isEmpty()) {
             return result;
         }
-        for (String part : value.split("[,;，；\\s]+")) {
+        for (String part : value.split("[,;锛岋紱\\s]+")) {
             String token = normalizeMaterialName(part);
             if (token.isEmpty()) {
                 continue;
@@ -338,23 +378,6 @@ public final class WildcardPatternConfig {
         return value == null ? "" : value.trim();
     }
 
-    private static final class TokenMatcher {
-        private final Pattern wildcardPattern;
-        private final String exactToken;
-
-        private TokenMatcher(Pattern wildcardPattern, String exactToken) {
-            this.wildcardPattern = wildcardPattern;
-            this.exactToken = exactToken;
-        }
-
-        private boolean matches(String materialName) {
-            if (this.wildcardPattern != null) {
-                return this.wildcardPattern.matcher(materialName).matches();
-            }
-            return this.exactToken != null && this.exactToken.equals(materialName);
-        }
-    }
-
     private static NBTTagCompound getOrCreatePreferences(ItemStack stack) {
         NBTTagCompound tag = getOrCreateTag(stack);
         if (!tag.hasKey(KEY_OREDICT_PREFERENCES, NBT.TAG_COMPOUND)) {
@@ -369,6 +392,21 @@ public final class WildcardPatternConfig {
         }
         return stack.getTagCompound();
     }
+
+    private static final class TokenMatcher {
+        private final Pattern wildcardPattern;
+        private final String exactToken;
+
+        private TokenMatcher(Pattern wildcardPattern, String exactToken) {
+            this.wildcardPattern = wildcardPattern;
+            this.exactToken = exactToken;
+        }
+
+        private boolean matches(String value) {
+            if (this.wildcardPattern != null) {
+                return this.wildcardPattern.matcher(value).matches();
+            }
+            return this.exactToken != null && this.exactToken.equals(value);
+        }
+    }
 }
-
-

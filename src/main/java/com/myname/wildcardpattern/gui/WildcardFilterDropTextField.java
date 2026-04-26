@@ -10,6 +10,7 @@ import gregtech.api.objects.ItemData;
 import gregtech.api.util.GTOreDictUnificator;
 import gregtech.api.enums.OrePrefixes;
 import net.minecraft.item.ItemStack;
+import net.minecraftforge.oredict.OreDictionary;
 import org.lwjgl.input.Keyboard;
 
 public class WildcardFilterDropTextField extends TextFieldWidget implements IDragAndDropHandler {
@@ -28,11 +29,12 @@ public class WildcardFilterDropTextField extends TextFieldWidget implements IDra
         }
 
         ItemData association = GTOreDictUnificator.getAssociation(draggedStack);
-        if (association == null || !association.hasValidPrefixMaterialData()) {
-            return false;
+        String token;
+        if (association != null && association.hasValidPrefixMaterialData()) {
+            token = buildOreToken(association);
+        } else {
+            token = buildOreTokenFromOreDict(draggedStack);
         }
-
-        String token = buildOreToken(association);
         if (token.isEmpty()) {
             return false;
         }
@@ -61,6 +63,34 @@ public class WildcardFilterDropTextField extends TextFieldWidget implements IDra
     public WildcardFilterDropTextField setOnEnter(Runnable enterHandler) {
         this.enterHandler = enterHandler;
         return this;
+    }
+
+    private static String buildOreTokenFromOreDict(ItemStack stack) {
+        if (stack == null) {
+            return "";
+        }
+        int[] oreIds = OreDictionary.getOreIDs(stack);
+        if (oreIds == null || oreIds.length == 0) {
+            return "";
+        }
+        String best = null;
+        int bestPrefixLen = 0;
+        for (int oreId : oreIds) {
+            String oreName = OreDictionary.getOreName(oreId);
+            if (oreName == null || oreName.isEmpty()) {
+                continue;
+            }
+            for (OrePrefixes prefix : OrePrefixes.values()) {
+                String prefixName = getPrefixName(prefix);
+                if (!prefixName.isEmpty()
+                    && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())
+                    && prefixName.length() > bestPrefixLen) {
+                    best = oreName;
+                    bestPrefixLen = prefixName.length();
+                }
+            }
+        }
+        return best != null ? best : "";
     }
 
     private static String buildOreToken(ItemData association) {

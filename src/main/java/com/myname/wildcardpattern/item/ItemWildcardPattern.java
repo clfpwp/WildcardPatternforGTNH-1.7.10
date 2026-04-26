@@ -88,6 +88,10 @@ public class ItemWildcardPattern extends ItemEncodedPattern {
         if (!WildcardPatternGenerator.isWildcardPattern(stack)) {
             WildcardPatternGenerator.markAsWildcard(stack);
         }
+        lines.add(
+            StatCollector.translateToLocalFormatted(
+                "tooltip.wildcardpattern.expand_count",
+                WildcardPatternState.getExpandedPatternCount(stack)));
         lines.add(StatCollector.translateToLocal("tooltip.wildcardpattern.usage"));
     }
 }
