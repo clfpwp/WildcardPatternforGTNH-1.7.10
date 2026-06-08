@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 import com.gtnewhorizons.modularui.api.widget.IDragAndDropHandler;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
+import com.myname.wildcardpattern.compat.GTCompat;
 import gregtech.api.objects.ItemData;
 import gregtech.api.util.GTOreDictUnificator;
 import gregtech.api.enums.OrePrefixes;
@@ -80,7 +81,7 @@ public class WildcardFilterDropTextField extends TextFieldWidget implements IDra
             if (oreName == null || oreName.isEmpty()) {
                 continue;
             }
-            for (OrePrefixes prefix : OrePrefixes.values()) {
+            for (OrePrefixes prefix : GTCompat.orePrefixes()) {
                 String prefixName = getPrefixName(prefix);
                 if (!prefixName.isEmpty()
                     && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())

@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 import appeng.util.Platform;
+import com.myname.wildcardpattern.compat.GTCompat;
 import cpw.mods.fml.common.registry.GameRegistry;
 import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
@@ -205,7 +206,7 @@ public class WildcardPatternEntry {
         }
 
         OreMatch bestMatch = null;
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String oreName = getOreName(prefix, materialName);
             if (oreName.isEmpty() || !matchesOreName(oreName, matcherValue)) {
                 continue;
@@ -258,7 +259,7 @@ public class WildcardPatternEntry {
         }
 
         Materials material = findMaterialByName(materialName);
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             ItemStack candidate = getPreferredOreStack(configStack, prefix, materialName);
             if (candidate == null && isRealMaterial(material)) {
                 candidate = GTOreDictUnificator.get(prefix, material, getClampedAmount());
@@ -269,7 +270,7 @@ public class WildcardPatternEntry {
             }
         }
 
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String oreName = getOreName(prefix, materialName);
             if (oreName.isEmpty()) {
                 continue;
@@ -708,7 +709,7 @@ public class WildcardPatternEntry {
         if (token == null || token.isEmpty()) {
             return null;
         }
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String prefixName = getPrefixName(prefix);
             if (!prefixName.isEmpty() && prefixName.equalsIgnoreCase(token)) {
                 return prefix;
@@ -889,7 +890,7 @@ public class WildcardPatternEntry {
         }
         OrePrefixes bestMatch = null;
         int bestPrefixLength = -1;
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String prefixName = getPrefixName(prefix);
             if (prefixName.isEmpty() || !oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
                 continue;

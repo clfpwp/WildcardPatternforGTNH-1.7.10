@@ -1,5 +1,7 @@
 package com.myname.wildcardpattern.mixin;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,11 +17,11 @@ import appeng.api.networking.crafting.ICraftingPatternDetails;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.networking.crafting.ICraftingProviderHelper;
 import appeng.api.storage.data.IAEItemStack;
+import appeng.util.inv.MEInventoryCrafting;
 import com.glodblock.github.common.item.ItemFluidDrop;
 import com.glodblock.github.common.item.ItemFluidPacket;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import gregtech.api.enums.GTValues;
-import gregtech.api.logic.ProcessingLogic;
 import gregtech.api.objects.GTDualInputPattern;
 import gregtech.api.util.GTUtility;
 import gregtech.common.tileentities.machines.MTEHatchCraftingInputME;
@@ -48,9 +50,6 @@ public abstract class MTEHatchCraftingInputMEMixin {
     @Shadow
     @Final
     private boolean supportFluids;
-
-    @Shadow
-    public List<ProcessingLogic> processingLogics;
 
     @Shadow
     public abstract IInventory getPatterns();
@@ -149,7 +148,12 @@ public abstract class MTEHatchCraftingInputMEMixin {
             return;
         }
 
-        if (!slot.insertItemsAndFluids(table)) {
+        if (!(table instanceof MEInventoryCrafting meTable)) {
+            cir.setReturnValue(false);
+            return;
+        }
+
+        if (!slot.insertItemsAndFluids(meTable)) {
             cir.setReturnValue(false);
             return;
         }
@@ -279,8 +283,64 @@ public abstract class MTEHatchCraftingInputMEMixin {
     }
 
     private void removeInventoryRecipeCache(MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot) {
-        for (ProcessingLogic processingLogic : this.processingLogics) {
-            processingLogic.removeInventoryRecipeCache(slot);
+        Iterable<?> processingLogics = getProcessingLogics();
+        if (processingLogics == null) {
+            return;
+        }
+        for (Object processingLogic : processingLogics) {
+            invokeRemoveInventoryRecipeCache(processingLogic, slot);
+        }
+    }
+
+    private Iterable<?> getProcessingLogics() {
+        Field field = findField(((Object) this).getClass(), "processingLogics");
+        if (field == null) {
+            return null;
+        }
+        try {
+            field.setAccessible(true);
+            Object value = field.get(this);
+            if (value instanceof Iterable<?> iterable) {
+                return iterable;
+            }
+        } catch (IllegalAccessException | SecurityException ignored) {
+            // GTNH 2.9 removed this field; cache clearing is best-effort for older GT versions.
+        }
+        return null;
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    private static void invokeRemoveInventoryRecipeCache(
+        Object processingLogic,
+        MTEHatchCraftingInputME.PatternSlot<MTEHatchCraftingInputME> slot) {
+        if (processingLogic == null) {
+            return;
+        }
+        for (Method method : processingLogic.getClass()
+            .getMethods()) {
+            if (!"removeInventoryRecipeCache".equals(method.getName()) || method.getParameterTypes().length != 1) {
+                continue;
+            }
+            if (!method.getParameterTypes()[0].isInstance(slot)) {
+                continue;
+            }
+            try {
+                method.invoke(processingLogic, slot);
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+                // Optional compatibility path only; stale cache is less dangerous than crashing the hatch.
+            }
+            return;
         }
     }
 

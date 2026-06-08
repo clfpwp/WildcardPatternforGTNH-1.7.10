@@ -9,8 +9,8 @@
 - Mod ID: `wildcardpattern`
 - Minecraft: `1.7.10`
 - Forge: `10.13.4.1614`
-- 版本号: `1.0.4`
-- gtnh版本: `2.8.4`
+- 版本号: `1.0.6`
+- gtnh版本: `2.9.0-beta-1`
 
 ## 核心功能
 
@@ -46,8 +46,9 @@
 
 ## 兼容性说明
 
-- 目标环境：GTNH 2.8.4 / AE2 Unofficial / Forge 1.7.10
-- 目前仅测试过 `2.8.4` 版本，不确定其他版本能否正常运行
+- 目标环境：GTNH 2.9.0-beta-1 / AE2 Unofficial / Forge 1.7.10
+- `1.0.6` 目前仅测试兼容 `2.9.0-beta-1`，不确定其他 GTNH 版本能否正常运行
+- `1.0.5` 目前仅测试兼容 `2.8.4`，不确定其他 GTNH 版本能否正常运行
 - 依赖模组：
   - `appliedenergistics2`
   - `gregtech`

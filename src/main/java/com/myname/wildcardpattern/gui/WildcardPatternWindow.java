@@ -17,6 +17,7 @@ import com.gtnewhorizons.modularui.common.widget.DrawableWidget;
 import com.gtnewhorizons.modularui.common.widget.TextWidget;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
+import com.myname.wildcardpattern.compat.GTCompat;
 import com.myname.wildcardpattern.compat.NechSearchCompat;
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
@@ -1686,7 +1687,7 @@ public final class WildcardPatternWindow {
             for (int oreId : oreIds) {
                 String oreName = OreDictionary.getOreName(oreId);
                 if (oreName == null || oreName.isEmpty()) continue;
-                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
+                for (gregtech.api.enums.OrePrefixes prefix : GTCompat.orePrefixes()) {
                     String prefixName = getPrefixName(prefix);
                     if (!prefixName.isEmpty()
                         && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())
@@ -1810,7 +1811,7 @@ public final class WildcardPatternWindow {
             for (int oreId : oreIds) {
                 String oreName = OreDictionary.getOreName(oreId);
                 if (oreName == null || oreName.isEmpty()) continue;
-                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
+                for (gregtech.api.enums.OrePrefixes prefix : GTCompat.orePrefixes()) {
                     String prefixName = getPrefixName(prefix);
                     if (!prefixName.isEmpty() && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
                         return oreName;
