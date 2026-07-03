@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release-tags:
-    runs-on: windows-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout mod repo
         uses: actions/checkout@v5
@@ -37,17 +37,16 @@ jobs:
           validate-wrappers: true
 
       - name: Build the mod
-        shell: pwsh
-        run: .\gradlew.bat clean build --no-configuration-cache --no-parallel '-Dorg.gradle.problems.report=false'
+        run: |
+          chmod +x gradlew
+          ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='https://nexus.gtnewhorizons.com/repository/releases/' assemble
 
       - name: Release under current tag
-        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete $env:GITHUB_REF_NAME --yes 2>$null
-          $assets = Get-ChildItem build/libs -Filter '*.jar' | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME `
-            --title $env:GITHUB_REF_NAME `
-            --notes "GTNH 2.8.4 maintenance release." `
-            $assets
+          gh release delete "${GITHUB_REF_NAME}" --yes || true
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "GTNH 2.8.4 maintenance release." \
+            ./build/libs/*.jar
