@@ -5,15 +5,21 @@ import appeng.api.storage.data.IAEItemStack;
 import appeng.helpers.PatternHelper;
 import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
 
 public class WildcardPatternDetails implements ICraftingPatternDetails {
 
     private final PatternHelper delegate;
+    private final ItemStack stablePattern;
+    private final String stablePatternIdentity;
+    private final int stableHashCode;
 
     public WildcardPatternDetails(ItemStack stack, World world) {
         this.delegate = new PatternHelper(stack, world);
+        ItemStack pattern = this.delegate.getPattern();
+        this.stablePattern = pattern == null ? null : pattern.copy();
+        this.stablePatternIdentity = WildcardPatternGenerator.getPatternIdentity(this.stablePattern);
+        this.stableHashCode = this.stablePatternIdentity.hashCode();
     }
 
     @Override
@@ -78,11 +84,7 @@ public class WildcardPatternDetails implements ICraftingPatternDetails {
 
     @Override
     public int hashCode() {
-        ItemStack pattern = this.getPattern();
-        int result = pattern.getItem() != null ? System.identityHashCode(pattern.getItem()) : 0;
-        result = 31 * result + pattern.getItemDamage();
-        result = 31 * result + WildcardPatternGenerator.getPatternIdentity(pattern).hashCode();
-        return result;
+        return this.stableHashCode;
     }
 
     @Override
@@ -90,35 +92,10 @@ public class WildcardPatternDetails implements ICraftingPatternDetails {
         if (this == obj) {
             return true;
         }
-        if (!(obj instanceof WildcardPatternDetails other)) {
+        if (!(obj instanceof WildcardPatternDetails)) {
             return false;
         }
-        return arePatternStacksEqual(this.getPattern(), other.getPattern());
-    }
-
-    private static boolean arePatternStacksEqual(ItemStack left, ItemStack right) {
-        if (left == right) {
-            return true;
-        }
-        if (left == null || right == null) {
-            return false;
-        }
-        if (left.getItem() != right.getItem() || left.getItemDamage() != right.getItemDamage()) {
-            return false;
-        }
-        String leftId = WildcardPatternGenerator.getGeneratedPatternId(left);
-        String rightId = WildcardPatternGenerator.getGeneratedPatternId(right);
-        if (!leftId.isEmpty() || !rightId.isEmpty()) {
-            return leftId.equals(rightId);
-        }
-        NBTTagCompound leftTag = left.getTagCompound();
-        NBTTagCompound rightTag = right.getTagCompound();
-        if (leftTag == rightTag) {
-            return true;
-        }
-        if (leftTag == null || rightTag == null) {
-            return false;
-        }
-        return leftTag.equals(rightTag);
+        WildcardPatternDetails other = (WildcardPatternDetails) obj;
+        return this.stablePatternIdentity.equals(other.stablePatternIdentity);
     }
 }

@@ -1,6 +1,7 @@
 package com.myname.wildcardpattern.item;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -9,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import com.myname.wildcardpattern.compat.OrePrefixCompat;
 import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
 import gregtech.api.objects.ItemData;
@@ -25,6 +27,7 @@ public final class WildcardPatternConfig {
     private static final String KEY_RULE_INCLUDE_MATERIALS = "WildcardRuleIncludeMaterials";
     private static final String KEY_RULE_EXCLUDE_MATERIALS = "WildcardRuleExcludeMaterials";
     private static final String KEY_OREDICT_PREFERENCES = "WildcardOreDictPreferences";
+    private static final String LIST_SEPARATOR_PATTERN = "[,;\\uFF0C\\uFF1B\\s]+";
     private static final Map<String, List<TokenMatcher>> TOKEN_MATCHER_CACHE = new ConcurrentHashMap<>();
 
     private WildcardPatternConfig() {}
@@ -218,7 +221,7 @@ public final class WildcardPatternConfig {
             return result;
         }
 
-        String[] parts = value.split("[,;锛岋紱\\s]+");
+        String[] parts = value.split(LIST_SEPARATOR_PATTERN);
         for (String part : parts) {
             String normalized = normalizeMaterialName(part);
             if (normalized.length() > 0) {
@@ -286,7 +289,7 @@ public final class WildcardPatternConfig {
             OrePrefixes prefix = association.mPrefix;
             Materials material = association.mMaterial == null ? null : association.mMaterial.mMaterial;
             if (prefix != null && material != null && material.mName != null && !material.mName.isEmpty()) {
-                String oreName = normalizeMaterialName(getPrefixName(prefix) + material.mName);
+                String oreName = normalizeMaterialName(OrePrefixCompat.getPrefixName(prefix) + material.mName);
                 if (!oreName.isEmpty()) {
                     result.add(oreName);
                 }
@@ -305,19 +308,6 @@ public final class WildcardPatternConfig {
         }
     }
 
-    private static String getPrefixName(OrePrefixes prefix) {
-        if (prefix == null) {
-            return "";
-        }
-        try {
-            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
-        } catch (Exception ignored) {}
-        try {
-            return (String) prefix.getClass().getMethod("name").invoke(prefix);
-        } catch (Exception ignored) {}
-        return prefix.toString();
-    }
-
     private static boolean matchesList(String value, String materialName) {
         if (materialName == null || materialName.isEmpty()) {
             return false;
@@ -329,7 +319,7 @@ public final class WildcardPatternConfig {
         if (value == null || value.trim().isEmpty()) {
             return false;
         }
-        for (TokenMatcher matcher : TOKEN_MATCHER_CACHE.computeIfAbsent(value, WildcardPatternConfig::buildTokenMatchers)) {
+        for (TokenMatcher matcher : getTokenMatchers(value)) {
             for (String candidateTerm : candidateTerms) {
                 if (candidateTerm != null && !candidateTerm.isEmpty() && matcher.matches(candidateTerm)) {
                     return true;
@@ -339,12 +329,22 @@ public final class WildcardPatternConfig {
         return false;
     }
 
+    private static List<TokenMatcher> getTokenMatchers(String value) {
+        List<TokenMatcher> cached = TOKEN_MATCHER_CACHE.get(value);
+        if (cached != null) {
+            return cached;
+        }
+        List<TokenMatcher> published = Collections.unmodifiableList(buildTokenMatchers(value));
+        List<TokenMatcher> existing = TOKEN_MATCHER_CACHE.putIfAbsent(value, published);
+        return existing == null ? published : existing;
+    }
+
     private static List<TokenMatcher> buildTokenMatchers(String value) {
         List<TokenMatcher> result = new ArrayList<>();
         if (value == null || value.trim().isEmpty()) {
             return result;
         }
-        for (String part : value.split("[,;锛岋紱\\s]+")) {
+        for (String part : value.split(LIST_SEPARATOR_PATTERN)) {
             String token = normalizeMaterialName(part);
             if (token.isEmpty()) {
                 continue;

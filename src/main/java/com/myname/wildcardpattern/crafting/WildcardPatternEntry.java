@@ -1,6 +1,8 @@
 package com.myname.wildcardpattern.crafting;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -10,6 +12,8 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 import appeng.util.Platform;
+import com.myname.wildcardpattern.compat.GTCompat;
+import com.myname.wildcardpattern.compat.OrePrefixCompat;
 import cpw.mods.fml.common.registry.GameRegistry;
 import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
@@ -31,8 +35,8 @@ public class WildcardPatternEntry {
     private static final Map<String, Pattern> ORE_PATTERN_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, Set<String>> ORE_CANDIDATE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, Set<String>> NAME_CANDIDATE_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, Materials> MATERIAL_NAME_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ItemStack> DEFAULT_ORE_STACK_CACHE = new ConcurrentHashMap<>();
+    private static volatile Map<String, Materials> MATERIAL_NAME_CACHE;
     private static volatile Set<String> ALL_KNOWN_MATERIAL_NAMES;
 
     private boolean oreDictMode;
@@ -63,6 +67,7 @@ public class WildcardPatternEntry {
     public static WildcardPatternEntry fromNbt(NBTTagCompound tag) {
         WildcardPatternEntry entry = new WildcardPatternEntry();
         entry.oreDictMode = tag.getBoolean(KEY_MODE);
+        // "Prefix" is the legacy NBT field name; keep reading it for old saved patterns.
         entry.matcher = tag.hasKey(KEY_MATCHER) ? tag.getString(KEY_MATCHER) : tag.getString("Prefix");
         entry.amount = Math.max(1L, tag.getLong(KEY_AMOUNT));
         if (tag.hasKey(KEY_STACK)) {
@@ -187,8 +192,9 @@ public class WildcardPatternEntry {
                 built.add(materialName);
             }
         }
-        ALL_KNOWN_MATERIAL_NAMES = built;
-        return new LinkedHashSet<>(built);
+        Set<String> published = Collections.unmodifiableSet(built);
+        ALL_KNOWN_MATERIAL_NAMES = published;
+        return new LinkedHashSet<>(published);
     }
 
     private ItemStack createOreDictStack(String materialName, ItemStack configStack) {
@@ -205,7 +211,7 @@ public class WildcardPatternEntry {
         }
 
         OreMatch bestMatch = null;
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String oreName = getOreName(prefix, materialName);
             if (oreName.isEmpty() || !matchesOreName(oreName, matcherValue)) {
                 continue;
@@ -258,7 +264,7 @@ public class WildcardPatternEntry {
         }
 
         Materials material = findMaterialByName(materialName);
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             ItemStack candidate = getPreferredOreStack(configStack, prefix, materialName);
             if (candidate == null && isRealMaterial(material)) {
                 candidate = GTOreDictUnificator.get(prefix, material, getClampedAmount());
@@ -269,7 +275,7 @@ public class WildcardPatternEntry {
             }
         }
 
-        for (OrePrefixes prefix : OrePrefixes.values()) {
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
             String oreName = getOreName(prefix, materialName);
             if (oreName.isEmpty()) {
                 continue;
@@ -311,7 +317,7 @@ public class WildcardPatternEntry {
         this.oreDictMode = true;
         OrePrefixes prefix = getDisplayPrefix();
         if (prefix != null) {
-            this.matcher = getPrefixName(prefix) + "*";
+            this.matcher = OrePrefixCompat.getPrefixName(prefix) + "*";
         } else if (this.matcher == null || this.matcher.trim().isEmpty()) {
             this.matcher = "*";
         }
@@ -497,7 +503,7 @@ public class WildcardPatternEntry {
             return result;
         }
 
-        String prefixName = getPrefixName(prefix);
+        String prefixName = OrePrefixCompat.getPrefixName(prefix);
         for (String oreName : OreDictionary.getOreNames()) {
             if (oreName == null || oreName.isEmpty()) {
                 continue;
@@ -687,19 +693,6 @@ public class WildcardPatternEntry {
         return builder.toString();
     }
 
-    private static String getPrefixName(OrePrefixes prefix) {
-        if (prefix == null) {
-            return "";
-        }
-        try {
-            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
-        } catch (Exception ignored) {}
-        try {
-            return (String) prefix.getClass().getMethod("name").invoke(prefix);
-        } catch (Exception ignored) {}
-        return prefix.toString();
-    }
-
     private static OrePrefixes findPrefix(String token) {
         OrePrefixes exact = OrePrefixes.getPrefix(token);
         if (exact != null) {
@@ -708,8 +701,8 @@ public class WildcardPatternEntry {
         if (token == null || token.isEmpty()) {
             return null;
         }
-        for (OrePrefixes prefix : OrePrefixes.values()) {
-            String prefixName = getPrefixName(prefix);
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
+            String prefixName = OrePrefixCompat.getPrefixName(prefix);
             if (!prefixName.isEmpty() && prefixName.equalsIgnoreCase(token)) {
                 return prefix;
             }
@@ -804,7 +797,7 @@ public class WildcardPatternEntry {
     }
 
     private static String getOreName(OrePrefixes prefix, String materialName) {
-        String prefixName = getPrefixName(prefix);
+        String prefixName = OrePrefixCompat.getPrefixName(prefix);
         String name = materialName == null ? "" : materialName.trim();
         return prefixName.isEmpty() || name.isEmpty() ? "" : prefixName + name;
     }
@@ -889,8 +882,8 @@ public class WildcardPatternEntry {
         }
         OrePrefixes bestMatch = null;
         int bestPrefixLength = -1;
-        for (OrePrefixes prefix : OrePrefixes.values()) {
-            String prefixName = getPrefixName(prefix);
+        for (OrePrefixes prefix : GTCompat.orePrefixes()) {
+            String prefixName = OrePrefixCompat.getPrefixName(prefix);
             if (prefixName.isEmpty() || !oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
                 continue;
             }
@@ -907,7 +900,7 @@ public class WildcardPatternEntry {
         if (prefix == null) {
             return "";
         }
-        String prefixName = getPrefixName(prefix);
+        String prefixName = OrePrefixCompat.getPrefixName(prefix);
         if (prefixName.isEmpty() || oreName == null || oreName.length() <= prefixName.length()) {
             return "";
         }
@@ -919,17 +912,22 @@ public class WildcardPatternEntry {
             return Materials._NULL;
         }
         String normalized = name.toLowerCase(Locale.ROOT);
-        Materials cached = MATERIAL_NAME_CACHE.get(normalized);
-        if (cached != null) {
-            return cached;
-        }
-        for (Materials material : Materials.getAll()) {
-            if (material == null || material == Materials._NULL || material == Materials.Empty || material.mName == null) {
-                continue;
+        Map<String, Materials> cache = MATERIAL_NAME_CACHE;
+        if (cache == null) {
+            Map<String, Materials> built = new LinkedHashMap<>();
+            for (Materials material : Materials.getAll()) {
+                if (material == null || material == Materials._NULL || material == Materials.Empty || material.mName == null) {
+                    continue;
+                }
+                String key = material.mName.toLowerCase(Locale.ROOT);
+                if (!built.containsKey(key)) {
+                    built.put(key, material);
+                }
             }
-            MATERIAL_NAME_CACHE.putIfAbsent(material.mName.toLowerCase(Locale.ROOT), material);
+            cache = Collections.unmodifiableMap(built);
+            MATERIAL_NAME_CACHE = cache;
         }
-        Materials material = MATERIAL_NAME_CACHE.get(normalized);
+        Materials material = cache.get(normalized);
         return material == null ? Materials._NULL : material;
     }
 
@@ -958,7 +956,7 @@ public class WildcardPatternEntry {
         }
 
         private static int computeScore(OrePrefixes prefix, String oreName) {
-            String prefixName = getPrefixName(prefix).toLowerCase(Locale.ROOT);
+            String prefixName = OrePrefixCompat.getPrefixName(prefix).toLowerCase(Locale.ROOT);
             if ("plate".equals(prefixName)) {
                 return 0;
             }

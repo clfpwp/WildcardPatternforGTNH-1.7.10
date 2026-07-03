@@ -6,6 +6,8 @@ import java.util.function.Consumer;
 import com.gtnewhorizons.modularui.api.widget.IDragAndDropHandler;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
+import com.myname.wildcardpattern.compat.GTCompat;
+import com.myname.wildcardpattern.compat.OrePrefixCompat;
 import gregtech.api.objects.ItemData;
 import gregtech.api.util.GTOreDictUnificator;
 import gregtech.api.enums.OrePrefixes;
@@ -80,8 +82,8 @@ public class WildcardFilterDropTextField extends TextFieldWidget implements IDra
             if (oreName == null || oreName.isEmpty()) {
                 continue;
             }
-            for (OrePrefixes prefix : OrePrefixes.values()) {
-                String prefixName = getPrefixName(prefix);
+            for (OrePrefixes prefix : GTCompat.orePrefixes()) {
+                String prefixName = OrePrefixCompat.getPrefixName(prefix);
                 if (!prefixName.isEmpty()
                     && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())
                     && prefixName.length() > bestPrefixLen) {
@@ -101,24 +103,11 @@ public class WildcardFilterDropTextField extends TextFieldWidget implements IDra
             || association.mMaterial.mMaterial.mName == null) {
             return "";
         }
-        String prefixName = getPrefixName(association.mPrefix);
+        String prefixName = OrePrefixCompat.getPrefixName(association.mPrefix);
         if (prefixName.isEmpty()) {
             return association.mMaterial.mMaterial.mName.toLowerCase(Locale.ROOT);
         }
         return prefixName + association.mMaterial.mMaterial.mName;
-    }
-
-    private static String getPrefixName(OrePrefixes prefix) {
-        if (prefix == null) {
-            return "";
-        }
-        try {
-            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
-        } catch (Exception ignored) {}
-        try {
-            return (String) prefix.getClass().getMethod("name").invoke(prefix);
-        } catch (Exception ignored) {}
-        return prefix.toString();
     }
 
     private static String appendToken(String current, String token) {

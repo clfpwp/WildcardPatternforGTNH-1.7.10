@@ -13,6 +13,7 @@ import com.myname.wildcardpattern.ModItems;
 import com.myname.wildcardpattern.item.WildcardPatternConfig;
 import com.myname.wildcardpattern.item.WildcardPatternState;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.world.World;
@@ -27,9 +28,10 @@ public final class WildcardPatternGenerator {
     private WildcardPatternGenerator() {}
 
     public static boolean isWildcardPattern(ItemStack stack) {
-        return stack != null
-            && (stack.getItem() == ModItems.wildcardPattern
-                || stack.hasTagCompound() && stack.getTagCompound().getBoolean(KEY_WILDCARD));
+        if (stack == null) {
+            return false;
+        }
+        return stack.getItem() == ModItems.wildcardPattern || isGeneratedPattern(stack);
     }
 
     public static void markAsWildcard(ItemStack stack) {
@@ -149,7 +151,7 @@ public final class WildcardPatternGenerator {
         if (!generatedId.isEmpty()) {
             return generatedId;
         }
-        return getStackFingerprint(stack);
+        return getStackIdentity(stack, false);
     }
 
     public static List<GeneratedPattern> generateRulePreviewPatterns(ItemStack stack, int ruleIndex) {
@@ -325,8 +327,8 @@ public final class WildcardPatternGenerator {
         ItemStack outputStack) {
         return ruleIndex + "|"
             + sanitizeIdentityPart(materialName) + "|"
-            + getStackFingerprint(inputStack) + "->"
-            + getStackFingerprint(outputStack);
+            + getStackIdentity(inputStack, true) + "->"
+            + getStackIdentity(outputStack, true);
     }
 
     private static String sanitizeIdentityPart(String value) {
@@ -335,7 +337,7 @@ public final class WildcardPatternGenerator {
             .replace("->", "-\\>");
     }
 
-    private static String getStackFingerprint(ItemStack stack) {
+    public static String getStackIdentity(ItemStack stack, boolean includeStackSize) {
         if (stack == null) {
             return "empty";
         }
@@ -344,8 +346,34 @@ public final class WildcardPatternGenerator {
             itemName = stack.getItem() == null ? "null" : stack.getItem().getClass().getName();
         }
         NBTTagCompound tag = stack.getTagCompound();
-        return itemName + "@" + stack.getItemDamage() + "x" + Math.max(1, stack.stackSize)
-            + "#" + (tag == null ? "" : Integer.toHexString(tag.hashCode()));
+        return itemName + "@" + stack.getItemDamage()
+            + (includeStackSize ? "x" + Math.max(1, stack.stackSize) : "")
+            + "#" + getStableTagIdentity(tag);
+    }
+
+    private static String getStableTagIdentity(NBTBase tag) {
+        if (tag == null) {
+            return "";
+        }
+        if (tag instanceof NBTTagCompound) {
+            NBTTagCompound compound = (NBTTagCompound) tag;
+            List<String> keys = new ArrayList<>();
+            for (Object key : compound.func_150296_c()) {
+                if (key != null) {
+                    keys.add(String.valueOf(key));
+                }
+            }
+            Collections.sort(keys);
+            StringBuilder builder = new StringBuilder("{");
+            for (String key : keys) {
+                if (builder.length() > 1) {
+                    builder.append(',');
+                }
+                builder.append(key).append(':').append(getStableTagIdentity(compound.getTag(key)));
+            }
+            return builder.append('}').toString();
+        }
+        return tag.toString();
     }
 
     private static NBTTagList buildPatternList(ItemStack stack) {

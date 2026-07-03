@@ -2,6 +2,7 @@ package com.myname.wildcardpattern.gui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.gtnewhorizons.modularui.api.ModularUITextures;
@@ -17,7 +18,9 @@ import com.gtnewhorizons.modularui.common.widget.DrawableWidget;
 import com.gtnewhorizons.modularui.common.widget.TextWidget;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 
+import com.myname.wildcardpattern.compat.GTCompat;
 import com.myname.wildcardpattern.compat.NechSearchCompat;
+import com.myname.wildcardpattern.compat.OrePrefixCompat;
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import com.myname.wildcardpattern.item.WildcardPatternConfig;
@@ -1170,19 +1173,6 @@ public final class WildcardPatternWindow {
         }
     }
 
-    private static String getPrefixName(gregtech.api.enums.OrePrefixes prefix) {
-        if (prefix == null) {
-            return "";
-        }
-        try {
-            return (String) prefix.getClass().getMethod("getName").invoke(prefix);
-        } catch (Exception ignored) {}
-        try {
-            return (String) prefix.getClass().getMethod("name").invoke(prefix);
-        } catch (Exception ignored) {}
-        return prefix.toString();
-    }
-
     private static String tr(String key) {
         return StatCollector.translateToLocal(key);
     }
@@ -1317,7 +1307,7 @@ public final class WildcardPatternWindow {
         private final List<PreviewRow> previewRows = new ArrayList<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
-        private volatile List<PreviewRow> asyncPreviewResult = null;
+        private final AtomicReference<List<PreviewRow>> asyncPreviewResult = new AtomicReference<>();
         private Thread asyncPreviewThread = null;
 
         private String globalExclude;
@@ -1551,7 +1541,7 @@ public final class WildcardPatternWindow {
                 prev.interrupt();
                 this.asyncPreviewThread = null;
             }
-            this.asyncPreviewResult = null;
+            this.asyncPreviewResult.set(null);
 
             // Build preview ItemStacks synchronously on main thread (requires player inventory access)
             final int ruleSnapshot = this.previewRule;
@@ -1594,7 +1584,7 @@ public final class WildcardPatternWindow {
                     }
                 }
                 if (!Thread.currentThread().isInterrupted()) {
-                    this.asyncPreviewResult = result;
+                    this.asyncPreviewResult.set(result);
                 }
             }, "WildcardPreviewBuild");
             thread.setDaemon(true);
@@ -1633,9 +1623,9 @@ public final class WildcardPatternWindow {
 
         private PreviewRow getPreviewRow(int lineIndex) {
             // Apply background result when ready — called from string supplier each render frame
-            List<PreviewRow> pending = this.asyncPreviewResult;
+            List<PreviewRow> pending = this.asyncPreviewResult.getAndSet(null);
             if (pending != null) {
-                this.asyncPreviewResult = null;
+                // A result published after getAndSet stays queued for the next render frame.
                 this.previewRows.clear();
                 this.previewRows.addAll(pending);
                 if (this.previewPageIndex >= getPreviewPageCount()) {
@@ -1674,7 +1664,7 @@ public final class WildcardPatternWindow {
             }
             ItemData association = GTOreDictUnificator.getAssociation(displayStack);
             if (association != null && association.hasValidPrefixMaterialData()) {
-                return getPrefixName(association.mPrefix) + materialName;
+                return OrePrefixCompat.getPrefixName(association.mPrefix) + materialName;
             }
             // Fallback for GT++ items not registered in the GT5 unificator
             int[] oreIds = OreDictionary.getOreIDs(displayStack);
@@ -1686,8 +1676,8 @@ public final class WildcardPatternWindow {
             for (int oreId : oreIds) {
                 String oreName = OreDictionary.getOreName(oreId);
                 if (oreName == null || oreName.isEmpty()) continue;
-                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
-                    String prefixName = getPrefixName(prefix);
+                for (gregtech.api.enums.OrePrefixes prefix : GTCompat.orePrefixes()) {
+                    String prefixName = OrePrefixCompat.getPrefixName(prefix);
                     if (!prefixName.isEmpty()
                         && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())
                         && prefixName.length() > bestPrefixLen) {
@@ -1800,7 +1790,7 @@ public final class WildcardPatternWindow {
             }
             ItemData association = GTOreDictUnificator.getAssociation(stack);
             if (association != null && association.hasValidPrefixMaterialData()) {
-                return getPrefixName(association.mPrefix) + association.mMaterial.mMaterial.mName;
+                return OrePrefixCompat.getPrefixName(association.mPrefix) + association.mMaterial.mMaterial.mName;
             }
             // Fallback for GT++ items not registered in the GT5 unificator
             int[] oreIds = OreDictionary.getOreIDs(stack);
@@ -1810,8 +1800,8 @@ public final class WildcardPatternWindow {
             for (int oreId : oreIds) {
                 String oreName = OreDictionary.getOreName(oreId);
                 if (oreName == null || oreName.isEmpty()) continue;
-                for (gregtech.api.enums.OrePrefixes prefix : gregtech.api.enums.OrePrefixes.values()) {
-                    String prefixName = getPrefixName(prefix);
+                for (gregtech.api.enums.OrePrefixes prefix : GTCompat.orePrefixes()) {
+                    String prefixName = OrePrefixCompat.getPrefixName(prefix);
                     if (!prefixName.isEmpty() && oreName.regionMatches(true, 0, prefixName, 0, prefixName.length())) {
                         return oreName;
                     }
