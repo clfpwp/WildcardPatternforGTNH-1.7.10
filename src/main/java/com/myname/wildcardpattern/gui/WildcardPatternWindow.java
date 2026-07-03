@@ -1460,6 +1460,16 @@ public final class WildcardPatternWindow {
         }
     }
 
+    private static final class AsyncPreviewResult {
+        private final int generation;
+        private final List<PreviewRow> rows;
+
+        private AsyncPreviewResult(int generation, List<PreviewRow> rows) {
+            this.generation = generation;
+            this.rows = rows == null ? java.util.Collections.<PreviewRow>emptyList() : rows;
+        }
+    }
+
     private static final class WindowState {
         private final EntityPlayer player;
         private final int slot;
@@ -1470,8 +1480,9 @@ public final class WildcardPatternWindow {
         private final List<PreviewRow> previewRows = new ArrayList<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
-        private volatile List<PreviewRow> asyncPreviewResult = null;
+        private volatile AsyncPreviewResult asyncPreviewResult = null;
         private Thread asyncPreviewThread = null;
+        private volatile int asyncPreviewGeneration;
 
         private String globalExclude;
         private String previewSearch = "";
@@ -1698,6 +1709,7 @@ public final class WildcardPatternWindow {
 
         private void rebuildPreview() {
             this.previewRows.clear();
+            final int generation = ++this.asyncPreviewGeneration;
             // Cancel any in-progress background build
             Thread prev = this.asyncPreviewThread;
             if (prev != null) {
@@ -1773,8 +1785,8 @@ public final class WildcardPatternWindow {
                     result.add(displayRow);
                 }
                 sortDuplicateOutputsFirst(result);
-                if (!Thread.currentThread().isInterrupted()) {
-                    this.asyncPreviewResult = result;
+                if (!Thread.currentThread().isInterrupted() && generation == this.asyncPreviewGeneration) {
+                    this.asyncPreviewResult = new AsyncPreviewResult(generation, result);
                 }
             }, "WildcardPreviewBuild");
             thread.setDaemon(true);
@@ -1815,13 +1827,15 @@ public final class WildcardPatternWindow {
 
         private PreviewRow getPreviewRow(int lineIndex) {
             // Apply background result when ready — called from string supplier each render frame
-            List<PreviewRow> pending = this.asyncPreviewResult;
+            AsyncPreviewResult pending = this.asyncPreviewResult;
             if (pending != null) {
                 this.asyncPreviewResult = null;
-                this.previewRows.clear();
-                this.previewRows.addAll(pending);
-                if (this.previewPageIndex >= getPreviewPageCount()) {
-                    this.previewPageIndex = Math.max(0, getPreviewPageCount() - 1);
+                if (pending.generation == this.asyncPreviewGeneration) {
+                    this.previewRows.clear();
+                    this.previewRows.addAll(pending.rows);
+                    if (this.previewPageIndex >= getPreviewPageCount()) {
+                        this.previewPageIndex = Math.max(0, getPreviewPageCount() - 1);
+                    }
                 }
             }
             int absolute = this.previewPageIndex * PREVIEW_LINES + lineIndex;

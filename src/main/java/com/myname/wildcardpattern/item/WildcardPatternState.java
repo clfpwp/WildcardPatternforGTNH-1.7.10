@@ -15,6 +15,8 @@ public final class WildcardPatternState {
     private static final String KEY_INPUT_COMPONENTS = "WildcardInputComponents";
     private static final String KEY_OUTPUT_COMPONENTS = "WildcardOutputComponents";
     private static final String KEY_EXPANDED_PATTERN_COUNT = "WildcardExpandedPatternCount";
+    private static final String KEY_SELECTED_MATERIAL = "WildcardSelectedMaterial";
+    private static final String KEY_GENERATED_PATTERN_ID = "WildcardGeneratedPatternId";
 
     private WildcardPatternState() {}
 
@@ -30,6 +32,7 @@ public final class WildcardPatternState {
         if (!tag.hasKey(KEY_OUTPUT_COMPONENTS, NBT.TAG_LIST)) {
             tag.setTag(KEY_OUTPUT_COMPONENTS, importPatternList(tag.getTagList("out", NBT.TAG_COMPOUND)));
         }
+        cleanupLegacyPatternSlots(tag);
     }
 
     public static void initializeFromPattern(ItemStack stack) {
@@ -101,6 +104,7 @@ public final class WildcardPatternState {
         copyIfPresent(source, exported, "WildcardRuleExcludeMaterials");
         copyIfPresent(source, exported, "WildcardOreDictPreferences");
         copyIfPresent(source, exported, KEY_EXPANDED_PATTERN_COUNT);
+        copyIfPresent(source, exported, KEY_SELECTED_MATERIAL);
         return exported;
     }
 
@@ -117,6 +121,15 @@ public final class WildcardPatternState {
         copyIfPresent(config, tag, "WildcardRuleExcludeMaterials");
         copyIfPresent(config, tag, "WildcardOreDictPreferences");
         copyIfPresent(config, tag, KEY_EXPANDED_PATTERN_COUNT);
+        copyIfPresent(config, tag, KEY_SELECTED_MATERIAL);
+    }
+
+    private static void cleanupLegacyPatternSlots(NBTTagCompound tag) {
+        if (tag.hasKey(KEY_GENERATED_PATTERN_ID)) {
+            return;
+        }
+        tag.removeTag("in");
+        tag.removeTag("out");
     }
 
     private static List<WildcardPatternEntry> getEntries(ItemStack stack, String key) {
