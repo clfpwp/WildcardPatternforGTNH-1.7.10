@@ -59,7 +59,7 @@ public final class GTNLPatternCompat {
     }
 
     public static boolean containsIdentity(Object[] values, Object candidate) {
-        if (values == null) {
+        if (values == null || candidate == null) {
             return false;
         }
         for (Object value : values) {

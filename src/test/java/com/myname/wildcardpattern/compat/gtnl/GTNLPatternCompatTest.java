@@ -62,6 +62,11 @@ class GTNLPatternCompatTest {
     }
 
     @Test
+    void nullNeverRepresentsAnAttachedPhysicalSlot() {
+        assertFalse(GTNLPatternCompat.containsIdentity(new Object[] { null, new Object() }, null));
+    }
+
+    @Test
     void onlyNamedGTNLMixinsUseOptionalTargetGate() {
         assertTrue(
             GTNLPatternCompat.isOptionalGTNLMixin(
