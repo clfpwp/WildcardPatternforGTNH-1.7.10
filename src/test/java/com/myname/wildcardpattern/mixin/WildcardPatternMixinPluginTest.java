@@ -266,6 +266,22 @@ class WildcardPatternMixinPluginTest {
     }
 
     @Test
+    void java17NestMemberMustNotRejectCompatibleGTNLHatch() {
+        assertTrue(
+            WildcardPatternMixinPlugin.hasCompatibleStructure(
+                GTNLPatternCompat.HATCH_TARGET,
+                withNestMember(hatchClassBytes(true, true))));
+    }
+
+    @Test
+    void java17NestHostMustNotRejectCompatibleGTNLSlot() {
+        assertTrue(
+            WildcardPatternMixinPlugin.hasCompatibleStructure(
+                GTNLPatternCompat.SLOT_TARGET,
+                withNestHost(slotClassBytes(true))));
+    }
+
+    @Test
     void provideCraftingChecksProviderBeforeCancelling() throws IOException {
         int[] instruction = { 0 };
         int[] providerGuard = { -1 };
@@ -464,6 +480,39 @@ class WildcardPatternMixinPluginTest {
             "insertItemsAndFluids",
             "(Lnet/minecraft/inventory/InventoryCrafting;)Z");
         writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private static byte[] withNestMember(byte[] classBytes) {
+        return withNestAttribute(classBytes, true);
+    }
+
+    private static byte[] withNestHost(byte[] classBytes) {
+        return withNestAttribute(classBytes, false);
+    }
+
+    private static byte[] withNestAttribute(byte[] classBytes, boolean member) {
+        org.spongepowered.asm.lib.ClassWriter writer = new org.spongepowered.asm.lib.ClassWriter(0);
+        new org.spongepowered.asm.lib.ClassReader(classBytes).accept(
+            new org.spongepowered.asm.lib.ClassVisitor(org.spongepowered.asm.lib.Opcodes.ASM9, writer) {
+
+                @Override
+                public void visit(
+                    int version,
+                    int access,
+                    String name,
+                    String signature,
+                    String superName,
+                    String[] interfaces) {
+                    super.visit(61, access, name, signature, superName, interfaces);
+                    if (member) {
+                        super.visitNestMember(GTNLPatternCompat.SLOT_TARGET.replace('.', '/'));
+                    } else {
+                        super.visitNestHost(GTNLPatternCompat.HATCH_TARGET.replace('.', '/'));
+                    }
+                }
+            },
+            0);
         return writer.toByteArray();
     }
 

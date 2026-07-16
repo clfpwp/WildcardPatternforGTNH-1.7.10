@@ -96,7 +96,7 @@ public final class WildcardPatternMixinPlugin implements IMixinConfigPlugin {
         Set<String> methods = new HashSet<>();
         Set<String> directInterfaces = new HashSet<>();
         try {
-            new ClassReader(classBytes).accept(new ClassVisitor(Opcodes.ASM5) {
+            new ClassReader(classBytes).accept(new ClassVisitor(Opcodes.ASM9) {
 
                 @Override
                 public void visit(
