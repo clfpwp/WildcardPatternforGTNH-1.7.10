@@ -630,6 +630,11 @@ public abstract class MTEHatchCraftingInputMEMixin {
             }
         }
 
+        @Override
+        public boolean shouldBeCached() {
+            return false;
+        }
+
         private void setActivePatternDetails(ICraftingPatternDetails activePatternDetails) {
             this.activePatternDetails = activePatternDetails;
             setActivePatternStack(activePatternDetails == null ? null : activePatternDetails.getPattern());

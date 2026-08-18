@@ -3,7 +3,7 @@ name: Release tagged build
 
 on:
   push:
-    tags: [ 'v1.0.6' ]
+    tags: [ 'v1.0.7' ]
 
 permissions:
   contents: write
