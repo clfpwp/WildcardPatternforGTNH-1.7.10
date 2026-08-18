@@ -35,11 +35,15 @@
  */
 dependencies {
     compileOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-695-GTNH:dev")
-    compileOnly("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.482:dev")
+    compileOnly("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.482:dev") {
+        exclude group: "com.github.GTNewHorizons", module: "CodeChickenLib"
+    }
     compileOnly("com.github.GTNewHorizons:NotEnoughItems:2.8.44-GTNH:dev")
     compileOnly("com.github.GTNewHorizons:ModularUI:1.2.20:dev")
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-695-GTNH:dev")
-    runtimeOnlyNonPublishable("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.482:dev")
+    runtimeOnlyNonPublishable("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.482:dev") {
+        exclude group: "com.github.GTNewHorizons", module: "CodeChickenLib"
+    }
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.8.44-GTNH:dev")
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:ModularUI:1.2.20:dev")
 }
