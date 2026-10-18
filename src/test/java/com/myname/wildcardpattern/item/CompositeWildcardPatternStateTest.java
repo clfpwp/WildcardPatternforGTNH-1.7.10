@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -222,12 +223,80 @@ class CompositeWildcardPatternStateTest {
             assertNotNull(generated);
             NBTTagList encoded = generated.getTagCompound().getTagList("in", NBT.TAG_COMPOUND);
             assertEquals(2, encoded.tagCount());
-            NBTTagCompound encodedFixed = encoded.getCompoundTagAt(1);
+            NBTTagCompound encodedFixed = encoded.getCompoundTagAt(0);
             assertEquals(amount, encodedFixed.getInteger("Count"));
             assertTrue(encodedFixed.hasKey("Cnt", NBT.TAG_LONG));
             assertEquals((long) amount, encodedFixed.getLong("Cnt"));
             assertEquals("original", encodedFixed.getCompoundTag("tag").getString("marker"));
+            assertSame(patternItem, ItemStack.loadItemStackFromNBT(encoded.getCompoundTagAt(1)).getItem());
         }
+    }
+
+    @Test
+    void multipleFixedInputsAreEncodedFirstWithoutReorderingThePreview() throws Exception {
+        ItemStack wildcard = new ItemStack(patternItem, 5, 2);
+        ItemStack first = ingredient(257);
+        ItemStack second = ingredient(128);
+        second.setItemDamage(7);
+        second.getTagCompound().setString("marker", "second");
+        Constructor<CompositeWildcardPatternGenerator.GeneratedPattern> constructor =
+            CompositeWildcardPatternGenerator.GeneratedPattern.class.getDeclaredConstructor(
+                String.class, List.class, ItemStack.class);
+        constructor.setAccessible(true);
+        CompositeWildcardPatternGenerator.GeneratedPattern preview = constructor.newInstance(
+            "Iron", Arrays.asList(wildcard, first, second), new ItemStack(patternItem));
+        List<NBTTagCompound> before = new ArrayList<>();
+        for (ItemStack input : preview.inputStacks) {
+            before.add(input.writeToNBT(new NBTTagCompound()));
+        }
+
+        ItemStack generated = generatePattern(Collections.unmodifiableList(preview.inputStacks));
+        NBTTagList encoded = generated.getTagCompound().getTagList("in", NBT.TAG_COMPOUND);
+        assertEquals(3, encoded.tagCount());
+        assertEquals(257, encoded.getCompoundTagAt(0).getInteger("Count"));
+        assertEquals(257L, encoded.getCompoundTagAt(0).getLong("Cnt"));
+        assertEquals("original", encoded.getCompoundTagAt(0).getCompoundTag("tag").getString("marker"));
+        assertEquals(128, encoded.getCompoundTagAt(1).getInteger("Count"));
+        assertEquals(128L, encoded.getCompoundTagAt(1).getLong("Cnt"));
+        assertEquals(7, ItemStack.loadItemStackFromNBT(encoded.getCompoundTagAt(1)).getItemDamage());
+        assertEquals("second", encoded.getCompoundTagAt(1).getCompoundTag("tag").getString("marker"));
+        assertSame(patternItem, ItemStack.loadItemStackFromNBT(encoded.getCompoundTagAt(2)).getItem());
+        assertEquals(5L, encoded.getCompoundTagAt(2).getLong("Cnt"));
+
+        assertSame(patternItem, preview.inputStack.getItem());
+        assertSame(patternItem, preview.inputStacks.get(0).getItem());
+        for (int index = 0; index < preview.inputStacks.size(); index++) {
+            assertEquals(before.get(index), preview.inputStacks.get(index).writeToNBT(new NBTTagCompound()));
+        }
+        assertEquals(257, preview.inputStacks.get(1).stackSize);
+        assertEquals(128, preview.inputStacks.get(2).stackSize);
+    }
+
+    @Test
+    void encodingWithoutFixedInputsKeepsTheOnlyInputAndStableIdentity() throws Exception {
+        ItemStack wildcard = new ItemStack(patternItem, 257, 2);
+        List<ItemStack> inputs = Collections.singletonList(wildcard);
+        ItemStack generated = generatePattern(inputs);
+        ItemStack repeated = generatePattern(inputs);
+        NBTTagList encoded = generated.getTagCompound().getTagList("in", NBT.TAG_COMPOUND);
+        assertEquals(1, encoded.tagCount());
+        assertSame(patternItem, ItemStack.loadItemStackFromNBT(encoded.getCompoundTagAt(0)).getItem());
+        assertEquals(2, ItemStack.loadItemStackFromNBT(encoded.getCompoundTagAt(0)).getItemDamage());
+        assertEquals(257, encoded.getCompoundTagAt(0).getInteger("Count"));
+        assertEquals(257L, encoded.getCompoundTagAt(0).getLong("Cnt"));
+        assertEquals(257, wildcard.stackSize);
+        assertEquals(generated.getTagCompound().getString("WildcardGeneratedPatternId"),
+            repeated.getTagCompound().getString("WildcardGeneratedPatternId"));
+        NBTTagList outputs = generated.getTagCompound().getTagList("out", NBT.TAG_COMPOUND);
+        assertEquals(1, outputs.tagCount());
+        assertEquals(1L, outputs.getCompoundTagAt(0).getLong("Cnt"));
+    }
+
+    private static ItemStack generatePattern(List<ItemStack> inputs) throws Exception {
+        Method generate = CompositeWildcardPatternGenerator.class.getDeclaredMethod(
+            "createPatternStack", ItemStack.class, String.class, List.class, ItemStack.class);
+        generate.setAccessible(true);
+        return (ItemStack) generate.invoke(null, pattern(), "Iron", inputs, new ItemStack(patternItem));
     }
 
     private static ItemStack pattern() {
