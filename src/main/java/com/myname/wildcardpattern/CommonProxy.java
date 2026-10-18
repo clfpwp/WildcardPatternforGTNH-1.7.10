@@ -22,7 +22,13 @@ public class CommonProxy {
         ItemStack blankPattern = AEApi.instance().definitions().materials().blankPattern().maybeStack(1).orNull();
         if (blankPattern != null) {
             GameRegistry.addShapelessRecipe(new ItemStack(ModItems.wildcardPattern), blankPattern);
-            GameRegistry.addRecipe(new CompositeWildcardRecipe());
+            ItemStack oreFilterCard = AEApi.instance().definitions().materials().cardOreFilter().maybeStack(1).orNull();
+            if (oreFilterCard != null) {
+                GameRegistry.addRecipe(new CompositeWildcardRecipe(blankPattern, oreFilterCard));
+            } else {
+                WildcardPatternMod.LOG.warn(
+                    "Composite wildcard recipe not registered: AE2 ore dictionary filter card is unavailable");
+            }
         }
         NetworkRegistry.INSTANCE.registerGuiHandler(WildcardPatternMod.instance, new WildcardGuiHandler());
     }
