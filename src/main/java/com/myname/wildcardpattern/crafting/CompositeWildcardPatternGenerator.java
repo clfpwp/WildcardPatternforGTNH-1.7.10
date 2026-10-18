@@ -132,7 +132,7 @@ public final class CompositeWildcardPatternGenerator {
 
         WildcardPatternEntry input = CompositeWildcardPatternState.getWildcardInput(stack);
         WildcardPatternEntry output = CompositeWildcardPatternState.getWildcardOutput(stack);
-        if (input == null || input.isEmpty() || output == null || output.isEmpty()) {
+        if (!hasConcreteRule(input) || !hasConcreteRule(output)) {
             return Collections.emptyList();
         }
 
@@ -182,6 +182,20 @@ public final class CompositeWildcardPatternGenerator {
             }
         }
         return result;
+    }
+
+    private static boolean hasConcreteRule(WildcardPatternEntry entry) {
+        if (entry == null) {
+            return false;
+        }
+        String matcher = entry.getMatcher();
+        for (int index = 0; index < matcher.length(); index++) {
+            char character = matcher.charAt(index);
+            if (character != '*' && character != '?' && !Character.isWhitespace(character)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static ICraftingPatternDetails createDetailForCurrentStack(ItemStack stack, World world) {

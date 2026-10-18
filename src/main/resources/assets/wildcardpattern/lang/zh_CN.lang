@@ -1,5 +1,6 @@
 item.wildcard_pattern.name=通配样板
 item.composite_wildcard_pattern.name=复合通配样板
+item.composite_wildcard_pattern.rule_name=复合通配符样板（%s → %s）
 tooltip.wildcardpattern.invalid=未初始化的通配样板
 tooltip.wildcardpattern.expand_count=当前可生成 %s 个 AE2 加工样板
 tooltip.wildcardpattern.config=当前配置：输入 %s，输出 %s

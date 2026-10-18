@@ -1,5 +1,6 @@
 item.wildcard_pattern.name=Wildcard Pattern
 item.composite_wildcard_pattern.name=Composite Wildcard Pattern
+item.composite_wildcard_pattern.rule_name=Composite Wildcard Pattern (%s → %s)
 tooltip.wildcardpattern.invalid=Uninitialized wildcard pattern
 tooltip.wildcardpattern.expand_count=Can generate %s AE2 processing patterns
 tooltip.wildcardpattern.config=Config: inputs=%s, outputs=%s

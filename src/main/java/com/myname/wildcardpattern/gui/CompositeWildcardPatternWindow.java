@@ -206,12 +206,7 @@ public final class CompositeWildcardPatternWindow {
         final boolean[] suppressNextSetter = { false };
         final WildcardEntryDropTextField[] textRef = new WildcardEntryDropTextField[1];
         WildcardEntryDropTextField text = new WildcardEntryDropTextField(stack -> {
-            WildcardPatternEntry next = WildcardPatternEntry.fromStack(stack);
-            if (next.canOreDict()) {
-                next.convertToOreDict();
-            } else {
-                next.convertToItem();
-            }
+            WildcardPatternEntry next = CompositeWildcardRuleEditing.fromDroppedStack(stack);
             entryRef.set(next);
             state.refreshActivePage();
             if (textRef[0] != null) {
@@ -227,15 +222,7 @@ public final class CompositeWildcardPatternWindow {
                 suppressNextSetter[0] = false;
                 return;
             }
-            WildcardPatternEntry entry = entryRef.get();
-            if (!entry.isOreDict() && entry.isEmpty() && WildcardPatternEntry.looksLikeOreDictPattern(value)) {
-                entry.convertToOreDict();
-            }
-            if (entry.isOreDict()) {
-                entry.setOreNameOrPrefix(value);
-            } else {
-                entry.setMatcher(value);
-            }
+            entryRef.set(CompositeWildcardRuleEditing.updateMatcher(entryRef.get(), value));
             state.refreshActivePage();
         });
         text.setText(entryRef.get().isEmpty() ? "" : trim(entryRef.get().getLabel(), 16));
@@ -259,8 +246,9 @@ public final class CompositeWildcardPatternWindow {
             if (entry.isOreDict()) {
                 entry.convertToItem();
             } else {
-                entry.convertToOreDict();
+                entry = CompositeWildcardRuleEditing.toOreDict(entry);
             }
+            entryRef.set(entry);
             suppressNextSetter[0] = true;
             text.setText(trim(entry.getLabel(), 16));
             text.markForUpdate();

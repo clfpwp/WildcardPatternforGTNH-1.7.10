@@ -15,6 +15,7 @@ public final class CompositeWildcardPatternState {
     private static final String KEY_WILDCARD_INPUT = "CompositeWildcardInput";
     private static final String KEY_WILDCARD_OUTPUT = "CompositeWildcardOutput";
     private static final String KEY_FIXED_INPUTS = "CompositeWildcardFixedInputs";
+    private static final String KEY_FIXED_INPUT_COUNT = "Cnt";
     private static final String KEY_EXPANDED_PATTERN_COUNT = "CompositeWildcardExpandedPatternCount";
     private static final String KEY_SELECTED_MATERIAL = "WildcardSelectedMaterial";
     private static final String KEY_GENERATED_PATTERN_ID = "WildcardGeneratedPatternId";
@@ -69,7 +70,19 @@ public final class CompositeWildcardPatternState {
         NBTTagList list = getOrCreateTag(stack).getTagList(KEY_FIXED_INPUTS, NBT.TAG_COMPOUND);
         List<ItemStack> result = new ArrayList<>();
         for (int index = 0; index < list.tagCount() && result.size() < MAX_FIXED_INPUTS; index++) {
-            ItemStack fixed = ItemStack.loadItemStackFromNBT(list.getCompoundTagAt(index));
+            NBTTagCompound fixedTag = list.getCompoundTagAt(index);
+            ItemStack fixed = ItemStack.loadItemStackFromNBT(fixedTag);
+            if (fixed != null && fixedTag.hasKey(KEY_FIXED_INPUT_COUNT)) {
+                long count = fixedTag.getLong(KEY_FIXED_INPUT_COUNT);
+                if (!fixedTag.hasKey(KEY_FIXED_INPUT_COUNT, NBT.TAG_LONG) || count <= 0 || count > Integer.MAX_VALUE) {
+                    fixed = null;
+                } else {
+                    fixed.stackSize = (int) count;
+                }
+            }
+            if (fixed != null && fixed.stackSize <= 0) {
+                fixed = null;
+            }
             result.add(fixed == null ? null : fixed.copy());
         }
         ensureFixedSize(result);
@@ -92,6 +105,8 @@ public final class CompositeWildcardPatternState {
                 copy.stackSize = Math.max(1, copy.stackSize);
                 NBTTagCompound tag = new NBTTagCompound();
                 copy.writeToNBT(tag);
+                // ItemStack's legacy Count field is a byte; keep the full configured amount separately.
+                tag.setLong(KEY_FIXED_INPUT_COUNT, copy.stackSize);
                 list.appendTag(tag);
             }
         }
