@@ -317,6 +317,9 @@ public final class WildcardPatternGenerator {
     }
 
     public static ICraftingPatternDetails createDetailForCurrentStack(ItemStack stack, World world) {
+        if (CompositeWildcardPatternGenerator.isCompositeWildcardPattern(stack)) {
+            return CompositeWildcardPatternGenerator.createDetailForCurrentStack(stack, world);
+        }
         try {
             return new WildcardPatternDetails(stack, world);
         } catch (RuntimeException ignored) {

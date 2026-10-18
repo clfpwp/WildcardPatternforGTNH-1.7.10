@@ -18,6 +18,7 @@ import com.gtnewhorizons.modularui.common.widget.DrawableWidget;
 import com.gtnewhorizons.modularui.common.widget.TextWidget;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 import com.myname.wildcardpattern.compat.GTCompat;
+import com.myname.wildcardpattern.compat.FixedFluidSupport;
 import com.myname.wildcardpattern.compat.NechSearchCompat;
 import com.myname.wildcardpattern.crafting.CompositeWildcardPatternGenerator;
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
@@ -116,6 +117,7 @@ public final class CompositeWildcardPatternWindow {
         multiply.setPos(188, 70);
         multiply.setSize(42, 16);
         multiply.setOnClick((clickData, widget) -> {
+            if (!state.areFixedInputsValid()) return;
             if (clickData.mouseButton == 1) {
                 state.divideAll();
             } else {
@@ -136,6 +138,12 @@ public final class CompositeWildcardPatternWindow {
             int row = index / 2;
             fixedRefs.add(addFixedInputCell(builder, state, index, 18 + column * 214, 122 + row * 24));
         }
+        TextWidget fluidError = new TextWidget("");
+        fluidError.setPos(18, 223);
+        fluidError.setScale(0.7f);
+        fluidError.setStringSupplier(() -> state.areFixedInputsValid() ? ""
+            : EnumChatFormatting.RED + tr("gui.composite_wildcardpattern.invalid_fluid"));
+        addPageWidget(builder, state, fluidError, Page.MAIN);
 
         addGlobalExclude(builder, state, 8, 248);
 
@@ -147,6 +155,7 @@ public final class CompositeWildcardPatternWindow {
             state.wildcardOutput.set(WildcardPatternEntry.fromStack(null));
             for (int i = 0; i < state.fixedInputs.size(); i++) {
                 state.fixedInputs.set(i, null);
+                state.resetFixedSlot(i);
             }
             state.globalExclude = "";
             inputRef.clear();
@@ -174,8 +183,7 @@ public final class CompositeWildcardPatternWindow {
         save.setPos(382, 270);
         save.setSize(68, 18);
         save.setOnClick((clickData, widget) -> {
-            state.save();
-            widget.getWindow().closeWindow();
+            if (state.save()) widget.getWindow().closeWindow();
         });
         addPageWidget(builder, state, save, Page.MAIN);
     }
@@ -279,25 +287,37 @@ public final class CompositeWildcardPatternWindow {
 
         final TextFieldWidget[] amountRef = { null };
         WildcardEntryDropButton drop = new WildcardEntryDropButton(stack -> {
-            ItemStack copy = stack == null ? null : stack.copy();
-            if (copy != null) {
-                copy.stackSize = 1;
+            try {
+                state.fixedInputs.set(index, FixedFluidSupport.fromDroppedStack(stack));
+                state.resetFixedSlot(index);
+            } catch (IllegalArgumentException e) {
+                state.invalidFixedFluids[index] = true;
+                state.refreshActivePage();
+                return;
             }
-            state.fixedInputs.set(index, copy);
             state.refreshActivePage();
             if (amountRef[0] != null) {
-                amountRef[0].setText(formatAmount(state.getFixedAmount(index)));
+                amountRef[0].setText(state.getFixedFormattedAmount(index));
                 amountRef[0].markForUpdate();
             }
-        });
+        }, false);
         drop.setSynced(false, false);
-        drop.setBackground(() -> buttonBackground(false, trim(state.getFixedLabel(index), 16), BUTTON_TEXT_COLOR));
+        drop.setBackground(() -> buttonBackground(false, trim(state.getFixedLabel(index), 10), BUTTON_TEXT_COLOR));
         drop.setPlayClickSound(true);
         drop.setPos(x + 14, y);
-        drop.setSize(124, 18);
+        drop.setSize(74, 18);
+        drop.dynamicTooltip(() -> {
+            List<String> lines = new ArrayList<>();
+            lines.add(state.getFixedLabel(index));
+            lines.add(tr("gui.composite_wildcardpattern.fixed_fluid_hint"));
+            net.minecraftforge.fluids.FluidStack fluid = FixedFluidSupport.getFluid(state.fixedInputs.get(index));
+            if (fluid != null && fluid.tag != null) lines.add(tr("gui.composite_wildcardpattern.fluid_nbt_unsupported"));
+            return lines;
+        });
         drop.setOnClick((clickData, widget) -> {
             if (clickData.mouseButton == 1) {
                 state.fixedInputs.set(index, null);
+                state.resetFixedSlot(index);
                 state.refreshActivePage();
                 if (amountRef[0] != null) {
                     amountRef[0].setText("1");
@@ -314,24 +334,49 @@ public final class CompositeWildcardPatternWindow {
         amount.setSetter(value -> {
             ItemStack fixed = state.fixedInputs.get(index);
             if (fixed != null) {
-                fixed.stackSize = (int) Math.min(Integer.MAX_VALUE, parseAmount(value));
+                try {
+                    fixed.stackSize = FixedFluidSupport.isFluid(fixed)
+                        ? FixedFluidSupport.parseAmount(value, state.fixedUnits.get(index))
+                        : (int) Math.min(Integer.MAX_VALUE, parseAmount(value));
+                    state.invalidFixedAmounts[index] = false;
+                } catch (IllegalArgumentException e) {
+                    state.invalidFixedAmounts[index] = true;
+                }
+                amountRef[0].setTextColor(state.invalidFixedAmounts[index] ? 0xFFFF5555 : FIELD_TEXT_COLOR);
                 state.refreshActivePage();
             }
         });
-        amount.setText(formatAmount(state.getFixedAmount(index)));
+        amount.setText(state.getFixedFormattedAmount(index));
         amount.setTextColor(FIELD_TEXT_COLOR);
         amount.setBackground(CompositeWildcardPatternWindow::fieldBackground);
         amount.setTextAlignment(Alignment.Center);
-        amount.setMaxLength(8);
-        amount.setPos(x + 162, y);
-        amount.setSize(40, 18);
+        amount.setMaxLength(16);
+        amount.setPos(x + 112, y);
+        amount.setSize(65, 18);
         addPageWidget(builder, state, amount, Page.MAIN);
 
+        ButtonWidget unit = button(() -> buttonBackground(false,
+            FixedFluidSupport.isFluid(state.fixedInputs.get(index)) ? state.fixedUnits.get(index) : "", BUTTON_TEXT_COLOR));
+        unit.setPos(x + 180, y);
+        unit.setSize(24, 18);
+        unit.dynamicTooltip(() -> FixedFluidSupport.isFluid(state.fixedInputs.get(index))
+            ? java.util.Collections.singletonList(tr("gui.composite_wildcardpattern.fluid_unit_hint"))
+            : java.util.Collections.emptyList());
+        unit.setOnClick((clickData, widget) -> {
+            if (!FixedFluidSupport.isFluid(state.fixedInputs.get(index)) || state.invalidFixedAmounts[index]) return;
+            state.fixedUnits.set(index, "B".equals(state.fixedUnits.get(index)) ? "mB" : "B");
+            amount.setText(state.getFixedFormattedAmount(index));
+            amount.markForUpdate();
+            state.refreshActivePage();
+        });
+        addPageWidget(builder, state, unit, Page.MAIN);
+
         ButtonWidget remove = button("X");
-        remove.setPos(x + 142, y);
+        remove.setPos(x + 92, y);
         remove.setSize(16, 18);
         remove.setOnClick((clickData, widget) -> {
             state.fixedInputs.set(index, null);
+            state.resetFixedSlot(index);
             amount.setText("1");
             amount.markForUpdate();
             drop.markForUpdate();
@@ -339,7 +384,7 @@ public final class CompositeWildcardPatternWindow {
         });
         addPageWidget(builder, state, remove, Page.MAIN);
 
-        return new FixedCellRefs(drop, amount, () -> formatAmount(state.getFixedAmount(index)));
+        return new FixedCellRefs(drop, amount, () -> state.getFixedFormattedAmount(index));
     }
 
     private static void addPreviewPage(ModularWindow.Builder builder, WindowState state) {
@@ -818,16 +863,18 @@ public final class CompositeWildcardPatternWindow {
         builder.widget(widget);
     }
 
-    private static String summarize(List<ItemStack> inputStacks, ItemStack outputStack) {
+    private static String summarize(List<ItemStack> inputStacks, ItemStack outputStack, List<String> units) {
         StringBuilder builder = new StringBuilder();
         if (inputStacks == null || inputStacks.isEmpty()) {
             builder.append("-");
         } else {
+            int index = 0;
             for (ItemStack input : inputStacks) {
                 if (builder.length() > 0) {
                     builder.append(" + ");
                 }
-                builder.append(formatPreviewStack(input));
+                builder.append(formatPreviewStack(input, index < units.size() ? units.get(index) : "mB"));
+                index++;
             }
         }
         builder.append(" -> ").append(formatPreviewStack(outputStack));
@@ -835,8 +882,17 @@ public final class CompositeWildcardPatternWindow {
     }
 
     private static String formatPreviewStack(ItemStack stack) {
+        return formatPreviewStack(stack, "mB");
+    }
+
+    private static String formatPreviewStack(ItemStack stack, String unit) {
         if (stack == null) {
             return "-";
+        }
+        if (FixedFluidSupport.isFluid(stack)) {
+            net.minecraftforge.fluids.FluidStack fluid = FixedFluidSupport.getFluid(stack);
+            return fluid == null ? tr("gui.composite_wildcardpattern.fluid_missing")
+                : fluid.getLocalizedName() + " " + FixedFluidSupport.formatAmount(fluid.amount, unit) + " " + unit;
         }
         return formatStackSize(Math.max(1, stack.stackSize)) + "x" + stack.getDisplayName();
     }
@@ -1082,6 +1138,7 @@ public final class CompositeWildcardPatternWindow {
 
         private void clear() {
             this.amountField.setText("1");
+            this.amountField.setTextColor(FIELD_TEXT_COLOR);
             this.amountField.markForUpdate();
             this.button.markForUpdate();
         }
@@ -1249,6 +1306,9 @@ public final class CompositeWildcardPatternWindow {
         private final EntryRef wildcardInput;
         private final EntryRef wildcardOutput;
         private final List<ItemStack> fixedInputs;
+        private final List<String> fixedUnits;
+        private final boolean[] invalidFixedFluids = new boolean[FIXED_INPUTS];
+        private final boolean[] invalidFixedAmounts = new boolean[FIXED_INPUTS];
         private final List<PreviewRow> previewRows = new ArrayList<>();
         private final List<DedupeRow> dedupeRows = new ArrayList<>();
         private final java.util.Map<String, ItemStack> preferredOreStacks = new java.util.LinkedHashMap<>();
@@ -1315,6 +1375,10 @@ public final class CompositeWildcardPatternWindow {
             }
             while (this.fixedInputs.size() < FIXED_INPUTS) {
                 this.fixedInputs.add(null);
+            }
+            this.fixedUnits = CompositeWildcardPatternState.getFixedInputUnits(stack);
+            for (int i = 0; i < FIXED_INPUTS; i++) {
+                this.invalidFixedFluids[i] = CompositeWildcardPatternState.isInvalidFixedFluidSlot(stack, i);
             }
         }
 
@@ -1486,7 +1550,12 @@ public final class CompositeWildcardPatternWindow {
             List<PreviewRow> rawRows = new ArrayList<>();
             String filter = this.previewSearch == null ? "" : this.previewSearch.trim();
             for (CompositeWildcardPatternGenerator.GeneratedPattern pattern : CompositeWildcardPatternGenerator.generatePreviewPatterns(preview)) {
-                String line = summarize(pattern.inputStacks, pattern.outputStack);
+                List<String> units = new ArrayList<>();
+                units.add("mB");
+                for (int i = 0; i < this.fixedInputs.size(); i++) {
+                    if (this.fixedInputs.get(i) != null) units.add(this.fixedUnits.get(i));
+                }
+                String line = summarize(pattern.inputStacks, pattern.outputStack, units);
                 String excludeToken = getPreviewExcludeToken(pattern.inputStack, pattern.outputStack, pattern.materialName);
                 rawRows.add(
                     new PreviewRow(
@@ -1654,6 +1723,11 @@ public final class CompositeWildcardPatternWindow {
                 return tr("gui.composite_wildcardpattern.fixed_empty");
             }
             ItemStack fixed = this.fixedInputs.get(index);
+            if (this.invalidFixedFluids[index]) return tr("gui.composite_wildcardpattern.fluid_missing");
+            if (FixedFluidSupport.isFluid(fixed)) {
+                net.minecraftforge.fluids.FluidStack fluid = FixedFluidSupport.getFluid(fixed);
+                return fluid == null ? tr("gui.composite_wildcardpattern.fluid_missing") : fluid.getLocalizedName();
+            }
             return fixed == null || fixed.getItem() == null
                 ? tr("gui.composite_wildcardpattern.fixed_empty")
                 : fixed.getDisplayName();
@@ -1665,6 +1739,25 @@ public final class CompositeWildcardPatternWindow {
             }
             ItemStack fixed = this.fixedInputs.get(index);
             return fixed == null ? 1 : Math.max(1, fixed.stackSize);
+        }
+
+        private String getFixedFormattedAmount(int index) {
+            return FixedFluidSupport.isFluid(this.fixedInputs.get(index))
+                ? FixedFluidSupport.formatAmount(getFixedAmount(index), this.fixedUnits.get(index))
+                : formatAmount(getFixedAmount(index));
+        }
+
+        private void resetFixedSlot(int index) {
+            this.fixedUnits.set(index, "mB");
+            this.invalidFixedFluids[index] = false;
+            this.invalidFixedAmounts[index] = false;
+        }
+
+        private boolean areFixedInputsValid() {
+            for (int i = 0; i < FIXED_INPUTS; i++) {
+                if (this.invalidFixedFluids[i] || this.invalidFixedAmounts[i]) return false;
+            }
+            return FixedFluidSupport.areValidInputs(this.fixedInputs);
         }
 
         private String getOreName(WildcardPatternEntry entry, String materialName) {
@@ -1702,7 +1795,7 @@ public final class CompositeWildcardPatternWindow {
         }
 
         private boolean hasDuplicateOptions(String oreName) {
-            return oreName != null && OreDictionary.getOres(oreName) != null && OreDictionary.getOres(oreName).size() > 1;
+            return oreName != null && OreDictionary.getOres(oreName, false).size() > 1;
         }
 
         private String getDedupeDuplicateKey(String materialName) {
@@ -1713,7 +1806,7 @@ public final class CompositeWildcardPatternWindow {
             if (oreName == null || oreName.isEmpty()) {
                 return "";
             }
-            java.util.List<ItemStack> options = OreDictionary.getOres(oreName);
+            java.util.List<ItemStack> options = OreDictionary.getOres(oreName, false);
             if (options == null || options.isEmpty()) {
                 return tr("gui.wildcardpattern.preview_empty");
             }
@@ -1726,7 +1819,7 @@ public final class CompositeWildcardPatternWindow {
             if (oreName == null || oreName.isEmpty()) {
                 return;
             }
-            java.util.List<ItemStack> options = OreDictionary.getOres(oreName);
+            java.util.List<ItemStack> options = OreDictionary.getOres(oreName, false);
             if (options == null || options.isEmpty()) {
                 return;
             }
@@ -1815,20 +1908,22 @@ public final class CompositeWildcardPatternWindow {
             return null;
         }
 
-        private void save() {
+        private boolean save() {
             ItemStack preview = buildStack();
             ItemStack held = getHeldStack();
             if (preview == null || held == null) {
-                return;
+                return false;
             }
             CompositeWildcardPatternState.setExpandedPatternCount(preview, CompositeWildcardPatternGenerator.countPreviewPatterns(preview));
             CompositeWildcardPatternGenerator.markAsCompositeWildcard(held);
             CompositeWildcardPatternState.applyConfig(held, CompositeWildcardPatternState.exportConfig(preview));
             WildcardNetwork.CHANNEL.sendToServer(
                 new MessageUpdateCompositeWildcardConfig(this.slot, CompositeWildcardPatternState.exportConfig(preview)));
+            return true;
         }
 
         private ItemStack buildStack() {
+            if (!areFixedInputsValid()) return null;
             ItemStack held = getHeldStack();
             if (held == null) {
                 return null;
@@ -1838,6 +1933,7 @@ public final class CompositeWildcardPatternWindow {
             CompositeWildcardPatternState.setWildcardInput(preview, this.inputEntry);
             CompositeWildcardPatternState.setWildcardOutput(preview, this.outputEntry);
             CompositeWildcardPatternState.setFixedInputs(preview, this.fixedInputs);
+            CompositeWildcardPatternState.setFixedInputUnits(preview, this.fixedUnits);
             List<String> includes = new ArrayList<>();
             includes.add("");
             List<String> excludes = new ArrayList<>();

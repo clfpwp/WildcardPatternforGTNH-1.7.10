@@ -9,6 +9,7 @@ import java.util.Set;
 
 import appeng.api.networking.crafting.ICraftingPatternDetails;
 import com.myname.wildcardpattern.ModItems;
+import com.myname.wildcardpattern.compat.FixedFluidSupport;
 import com.myname.wildcardpattern.item.CompositeWildcardPatternState;
 import com.myname.wildcardpattern.item.WildcardPatternConfig;
 import net.minecraft.item.ItemStack;
@@ -129,6 +130,7 @@ public final class CompositeWildcardPatternGenerator {
         if (!isCompositeWildcardPattern(stack)) {
             return Collections.emptyList();
         }
+        if (CompositeWildcardPatternState.hasInvalidFixedFluidInputs(stack)) return Collections.emptyList();
 
         WildcardPatternEntry input = CompositeWildcardPatternState.getWildcardInput(stack);
         WildcardPatternEntry output = CompositeWildcardPatternState.getWildcardOutput(stack);
@@ -137,6 +139,7 @@ public final class CompositeWildcardPatternGenerator {
         }
 
         List<ItemStack> fixedInputs = normalizeFixedInputs(CompositeWildcardPatternState.getFixedInputs(stack));
+        if (!FixedFluidSupport.areValidInputs(fixedInputs)) return Collections.emptyList();
         List<String> candidates = new ArrayList<>();
         for (String candidate : collectCandidatePool(input, output)) {
             if (candidate != null) {
@@ -150,8 +153,8 @@ public final class CompositeWildcardPatternGenerator {
             if (candidate == null || candidate.trim().isEmpty()) {
                 continue;
             }
-            ItemStack wildcardInput = input.createStack(candidate, stack);
-            ItemStack outputStack = output.createStack(candidate, stack);
+            ItemStack wildcardInput = input.createStackReadOnly(candidate, stack);
+            ItemStack outputStack = output.createStackReadOnly(candidate, stack);
             if (wildcardInput == null || outputStack == null) {
                 continue;
             }
@@ -200,6 +203,13 @@ public final class CompositeWildcardPatternGenerator {
 
     public static ICraftingPatternDetails createDetailForCurrentStack(ItemStack stack, World world) {
         try {
+            if (CompositeWildcardPatternState.hasInvalidFixedFluidInputs(stack)) return null;
+            NBTTagList inputs = stack.getTagCompound().getTagList("in", 10);
+            for (int i = 0; i < inputs.tagCount(); i++) {
+                if (FixedFluidSupport.isFluid(ItemStack.loadItemStackFromNBT(inputs.getCompoundTagAt(i)))) {
+                    return new CompositeFluidPatternDetails(stack, world);
+                }
+            }
             return new WildcardPatternDetails(stack, world);
         } catch (RuntimeException ignored) {
             return null;
@@ -316,6 +326,7 @@ public final class CompositeWildcardPatternGenerator {
         if (stack == null) {
             return "empty";
         }
+        if (FixedFluidSupport.isFluid(stack)) return FixedFluidSupport.identity(stack);
         String itemName = String.valueOf(net.minecraft.item.Item.itemRegistry.getNameForObject(stack.getItem()));
         if (itemName == null || itemName.isEmpty() || "null".equals(itemName)) {
             itemName = stack.getItem() == null ? "null" : stack.getItem().getClass().getName();

@@ -12,7 +12,11 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,22 +44,26 @@ class WildcardPatternPresentationTest {
     private static ItemCompositeWildcardPattern composite;
     private static Item ingredient;
     private static Method displayHook;
-    private static String previousNameFormat;
+    private static final Map<String, String> previousTranslations = new LinkedHashMap<>();
     private final ItemEncodedPatternMixin hooks = new ItemEncodedPatternMixin() {};
 
     @BeforeAll
     static void registerItems() throws Exception {
-        previousNameFormat = StatCollector.translateToLocal("item.composite_wildcard_pattern.rule_name");
         try (InputStream language = WildcardPatternPresentationTest.class
             .getResourceAsStream("/assets/wildcardpattern/lang/zh_CN.lang")) {
-            String format = StringTranslate.parseLangFile(language).get("item.composite_wildcard_pattern.rule_name");
-            setNameFormat(format);
+            Map<String, String> translations = StringTranslate.parseLangFile(language);
+            for (String key : new String[] { "item.composite_wildcard_pattern.name",
+                "tooltip.composite_wildcardpattern.rule", "tooltip.composite_wildcardpattern.expand_count",
+                "tooltip.composite_wildcardpattern.usage", "tooltip.wildcardpattern.expand_count" }) {
+                previousTranslations.put(key, StatCollector.translateToLocal(key));
+                setTranslation(key, translations.get(key));
+            }
         }
         previousWildcard = ModItems.wildcardPattern;
         previousComposite = ModItems.compositeWildcardPattern;
         wildcard = new Item();
         composite = compositeWithoutGameStartup();
-        composite.setUnlocalizedName("composite_wildcard_pattern_test");
+        composite.setUnlocalizedName("composite_wildcard_pattern");
         ingredient = new Item();
         Method register = Item.itemRegistry.getClass()
             .getDeclaredMethod("addObjectRaw", int.class, String.class, Object.class);
@@ -79,7 +87,7 @@ class WildcardPatternPresentationTest {
 
     @AfterAll
     static void restoreItems() {
-        setNameFormat(previousNameFormat);
+        previousTranslations.forEach(WildcardPatternPresentationTest::setTranslation);
         ModItems.wildcardPattern = previousWildcard;
         ModItems.compositeWildcardPattern = previousComposite;
     }
@@ -162,27 +170,34 @@ class WildcardPatternPresentationTest {
     }
 
     @Test
-    void compositeNamesUseSavedRulesWithoutChangingConfiguration() {
+    void compositeTooltipsUseSavedRulesWithoutChangingConfiguration() {
         for (boolean dragged : new boolean[] { false, true }) {
             ItemStack pattern = configured(composite, dragged);
             CompositeWildcardPatternState.setFixedInputs(pattern, Collections.singletonList(new ItemStack(ingredient, 257, 4)));
+            CompositeWildcardPatternState.setExpandedPatternCount(pattern, 361);
             NBTTagCompound before = (NBTTagCompound) pattern.getTagCompound().copy();
-            assertEquals("复合通配符样板（ingot* → dust*）", pattern.getDisplayName());
+            assertEquals("复合通配样板", pattern.getDisplayName());
+            List<String> expected = Arrays.asList(
+                "规则：ingot* → dust*", "当前已展开 361 个 AE2 加工样板", "右键打开复合配置界面");
+            assertEquals(expected, tooltip(pattern, false));
+            assertEquals(expected, tooltip(pattern, true));
             assertEquals(before, pattern.getTagCompound());
             assertFalse(pattern.hasDisplayName());
 
             pattern.getTagCompound().getCompoundTag("CompositeWildcardInput").setString("Matcher", "  \u94c1*  ");
             pattern.getTagCompound().getCompoundTag("CompositeWildcardOutput").setString("Matcher", "  \u677f*  ");
             before = (NBTTagCompound) pattern.getTagCompound().copy();
-            assertEquals("复合通配符样板（铁* → 板*）", pattern.getDisplayName());
+            assertEquals("规则：铁* → 板*", tooltip(pattern, false).get(0));
+            assertEquals("复合通配样板", pattern.getDisplayName());
             assertEquals(before, pattern.getTagCompound());
         }
     }
 
     @Test
-    void incompleteCompositeNamesFallBackWithoutInitializingNbt() {
+    void incompleteCompositeTooltipsHideRulesWithoutInitializingNbt() {
         ItemStack empty = new ItemStack(composite, 1, 0);
         String defaultName = empty.getDisplayName();
+        assertEquals(Arrays.asList("当前已展开 0 个 AE2 加工样板", "右键打开复合配置界面"), tooltip(empty, false));
         assertNull(empty.getTagCompound());
         for (String missingSide : new String[] { "CompositeWildcardInput", "CompositeWildcardOutput" }) {
             for (boolean absent : new boolean[] { false, true }) {
@@ -194,6 +209,7 @@ class WildcardPatternPresentationTest {
                 }
                 NBTTagCompound before = (NBTTagCompound) pattern.getTagCompound().copy();
                 assertEquals(defaultName, pattern.getDisplayName());
+                assertEquals(2, tooltip(pattern, false).size());
                 assertEquals(before, pattern.getTagCompound());
             }
         }
@@ -209,23 +225,25 @@ class WildcardPatternPresentationTest {
         input.setString("Prefix", " ingot* ");
         output.setString("Prefix", " plate* ");
         NBTTagCompound before = (NBTTagCompound) pattern.getTagCompound().copy();
-        assertEquals("复合通配符样板（ingot* → plate*）", pattern.getDisplayName());
+        assertEquals("规则：ingot* → plate*", tooltip(pattern, false).get(0));
         assertEquals(before, pattern.getTagCompound());
         input.setString("Matcher", "dust*");
-        assertEquals("复合通配符样板（dust* → plate*）", pattern.getDisplayName());
+        assertEquals("规则：dust* → plate*", tooltip(pattern, false).get(0));
         input.setString("Matcher", "");
-        assertEquals(new ItemStack(composite, 1, 0).getDisplayName(), pattern.getDisplayName());
+        assertEquals(2, tooltip(pattern, false).size());
     }
 
     @Test
-    void customNamesStillOverrideRuleNames() {
+    void customNamesKeepRulesInTheTooltip() {
         ItemStack pattern = configured(composite, true);
         pattern.setStackDisplayName("My custom pattern");
         NBTTagCompound before = (NBTTagCompound) pattern.getTagCompound().copy();
         assertEquals("My custom pattern", pattern.getDisplayName());
+        assertEquals("规则：ingot* → dust*", tooltip(pattern, false).get(0));
         assertEquals(before, pattern.getTagCompound());
         pattern.func_135074_t();
-        assertEquals("复合通配符样板（ingot* → dust*）", pattern.getDisplayName());
+        assertEquals("复合通配样板", pattern.getDisplayName());
+        assertEquals("规则：ingot* → dust*", tooltip(pattern, false).get(0));
     }
 
     @Test
@@ -234,11 +252,14 @@ class WildcardPatternPresentationTest {
         generated.getTagCompound().setString(WildcardPatternGenerator.KEY_GENERATED_PATTERN_ID, "name-test-generated");
         NBTTagCompound before = (NBTTagCompound) generated.getTagCompound().copy();
         assertEquals(new ItemStack(composite, 1, 0).getDisplayName(), generated.getDisplayName());
+        assertEquals(Arrays.asList("当前已展开 0 个 AE2 加工样板", "右键打开复合配置界面"), tooltip(generated, false));
         assertEquals(before, generated.getTagCompound());
         ItemStack ordinary = configured(wildcard, false);
         before = (NBTTagCompound) ordinary.getTagCompound().copy();
         assertEquals(new ItemStack(wildcard, 1, 0).getDisplayName(), ordinary.getDisplayName());
         assertEquals(before, ordinary.getTagCompound());
+        assertEquals("当前可生成 361 个 AE2 加工样板",
+            StatCollector.translateToLocalFormatted("tooltip.wildcardpattern.expand_count", 361));
     }
 
     private CallbackInfoReturnable<IAEStack<?>> invokeDisplay(ItemStack pattern) throws Exception {
@@ -248,9 +269,15 @@ class WildcardPatternPresentationTest {
         return result;
     }
 
-    private static void setNameFormat(String format) {
-        String translation = "item.composite_wildcard_pattern.rule_name=" + format + "\n";
+    private static void setTranslation(String key, String format) {
+        String translation = key + "=" + format + "\n";
         StringTranslate.inject(new ByteArrayInputStream(translation.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static List<String> tooltip(ItemStack pattern, boolean advanced) {
+        List<String> lines = new ArrayList<>();
+        composite.addCheckedInformation(pattern, null, lines, advanced);
+        return lines;
     }
 
     private static ItemStack configured(Item item, boolean dragged) {

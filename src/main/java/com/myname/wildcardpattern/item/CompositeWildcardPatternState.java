@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.myname.wildcardpattern.crafting.WildcardPatternEntry;
+import com.myname.wildcardpattern.compat.FixedFluidSupport;
 
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -16,6 +17,8 @@ public final class CompositeWildcardPatternState {
     private static final String KEY_WILDCARD_OUTPUT = "CompositeWildcardOutput";
     private static final String KEY_FIXED_INPUTS = "CompositeWildcardFixedInputs";
     private static final String KEY_FIXED_INPUT_COUNT = "Cnt";
+    private static final String KEY_FLUID_INPUT = "FluidInput";
+    private static final String KEY_FLUID_UNIT = "FluidUnit";
     private static final String KEY_EXPANDED_PATTERN_COUNT = "CompositeWildcardExpandedPatternCount";
     private static final String KEY_SELECTED_MATERIAL = "WildcardSelectedMaterial";
     private static final String KEY_GENERATED_PATTERN_ID = "WildcardGeneratedPatternId";
@@ -93,6 +96,7 @@ public final class CompositeWildcardPatternState {
         if (stack == null) {
             return;
         }
+        List<String> units = getFixedInputUnits(stack);
         NBTTagList list = new NBTTagList();
         if (inputs != null) {
             for (int index = 0; index < inputs.size() && index < MAX_FIXED_INPUTS; index++) {
@@ -107,10 +111,55 @@ public final class CompositeWildcardPatternState {
                 copy.writeToNBT(tag);
                 // ItemStack's legacy Count field is a byte; keep the full configured amount separately.
                 tag.setLong(KEY_FIXED_INPUT_COUNT, copy.stackSize);
+                if (FixedFluidSupport.isFluid(copy)) {
+                    tag.setBoolean(KEY_FLUID_INPUT, true);
+                    tag.setString(KEY_FLUID_UNIT, units.get(index));
+                }
                 list.appendTag(tag);
             }
         }
         getOrCreateTag(stack).setTag(KEY_FIXED_INPUTS, list);
+    }
+
+    public static List<String> getFixedInputUnits(ItemStack stack) {
+        List<String> units = new ArrayList<>();
+        NBTTagList list = stack == null || !stack.hasTagCompound() ? new NBTTagList()
+            : stack.getTagCompound().getTagList(KEY_FIXED_INPUTS, NBT.TAG_COMPOUND);
+        for (int i = 0; i < MAX_FIXED_INPUTS; i++) {
+            units.add(FixedFluidSupport.normalizeUnit(list.getCompoundTagAt(i).getString(KEY_FLUID_UNIT)));
+        }
+        return units;
+    }
+
+    public static void setFixedInputUnits(ItemStack stack, List<String> units) {
+        NBTTagList list = getOrCreateTag(stack).getTagList(KEY_FIXED_INPUTS, NBT.TAG_COMPOUND);
+        for (int i = 0; i < list.tagCount() && i < MAX_FIXED_INPUTS; i++) {
+            NBTTagCompound entry = list.getCompoundTagAt(i);
+            if (entry.getBoolean(KEY_FLUID_INPUT)) {
+                entry.setString(KEY_FLUID_UNIT, FixedFluidSupport.normalizeUnit(i < units.size() ? units.get(i) : null));
+            }
+        }
+    }
+
+    public static boolean isInvalidFixedFluidSlot(ItemStack stack, int index) {
+        if (stack == null || !stack.hasTagCompound() || index < 0 || index >= MAX_FIXED_INPUTS) return false;
+        NBTTagCompound entry = stack.getTagCompound().getTagList(KEY_FIXED_INPUTS, NBT.TAG_COMPOUND).getCompoundTagAt(index);
+        ItemStack item = ItemStack.loadItemStackFromNBT(entry);
+        if (!entry.getBoolean(KEY_FLUID_INPUT) && !FixedFluidSupport.isFluid(item)) return false;
+        if (!FixedFluidSupport.isFluid(item)) return true;
+        if (entry.hasKey(KEY_FIXED_INPUT_COUNT)) {
+            long amount = entry.getLong(KEY_FIXED_INPUT_COUNT);
+            if (!entry.hasKey(KEY_FIXED_INPUT_COUNT, NBT.TAG_LONG) || amount <= 0 || amount > Integer.MAX_VALUE) return true;
+            item.stackSize = (int) amount;
+        }
+        return FixedFluidSupport.getFluid(item) == null || item.stackSize <= 0;
+    }
+
+    public static boolean hasInvalidFixedFluidInputs(ItemStack stack) {
+        for (int i = 0; i < MAX_FIXED_INPUTS; i++) {
+            if (isInvalidFixedFluidSlot(stack, i)) return true;
+        }
+        return false;
     }
 
     public static int getExpandedPatternCount(ItemStack stack) {
