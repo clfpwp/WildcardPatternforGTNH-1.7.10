@@ -251,6 +251,13 @@ public final class CompositeWildcardPatternGenerator {
             return null;
         }
 
+        // Encode the fixed inputs before the wildcard input. AE2 pushes pattern inputs in list order, and
+        // fixed inputs are often configuration items (e.g. a Programmable Hatches circuit/shape selector)
+        // that must reach the machine before the material, or it starts on its previous configuration.
+        List<ItemStack> orderedInputs = new ArrayList<>(inputStacks);
+        Collections.rotate(orderedInputs, -1);
+        inputStacks = orderedInputs;
+
         NBTTagList inputList = buildPatternList(inputStacks);
         NBTTagList outputList = buildPatternList(Collections.singletonList(outputStack));
         if (inputList == null || outputList == null) {
