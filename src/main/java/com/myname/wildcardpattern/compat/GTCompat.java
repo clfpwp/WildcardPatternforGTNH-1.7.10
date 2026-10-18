@@ -3,13 +3,28 @@ package com.myname.wildcardpattern.compat;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
+import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
+import gregtech.api.util.GTOreDictUnificator;
+import net.minecraft.item.ItemStack;
+import net.minecraftforge.oredict.OreDictionary;
 
 public final class GTCompat {
 
     private static volatile OrePrefixes[] orePrefixes;
 
     private GTCompat() {}
+
+    public static ItemStack getExistingOreStack(OrePrefixes prefix, Materials material, long amount) {
+        String oreName = prefix.get(material).toString();
+        // GT's fallback calls getOres(String), which creates missing names. Preserve GT-only
+        // unified entries as well as its disabled-component and quantity handling.
+        if (GTOreDictUnificator.getName2StackMap().get(oreName) == null
+            && !OreDictionary.doesOreNameExist(oreName)) {
+            return null;
+        }
+        return GTOreDictUnificator.get(prefix, material, amount);
+    }
 
     public static OrePrefixes[] orePrefixes() {
         OrePrefixes[] cached = orePrefixes;

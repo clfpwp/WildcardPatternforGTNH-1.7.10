@@ -6,3 +6,7 @@ plugins {
 tasks.test {
     useJUnitPlatform()
 }
+
+configurations.named("testCompileOnly") {
+    extendsFrom(configurations.getByName("compileOnly"))
+}

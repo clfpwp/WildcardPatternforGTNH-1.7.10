@@ -11,7 +11,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import appeng.api.networking.crafting.ICraftingPatternDetails;
 import appeng.api.storage.data.IAEStack;
 import appeng.items.misc.ItemEncodedPattern;
-import appeng.util.item.AEItemStack;
 import com.myname.wildcardpattern.crafting.WildcardPatternGenerator;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
@@ -44,11 +43,11 @@ public abstract class ItemEncodedPatternMixin {
     private void wildcardpattern$useRepresentativeOutputAe(
         ItemStack item,
         CallbackInfoReturnable<IAEStack<?>> cir) {
-        if (!WildcardPatternGenerator.isWildcardPattern(item)) {
+        if (!WildcardPatternGenerator.isWildcardPattern(item) || WildcardPatternGenerator.isGeneratedPattern(item)) {
             return;
         }
-        ItemStack output = WildcardPatternGenerator.getOutputForItem(item, null);
-        cir.setReturnValue(output == null ? null : AEItemStack.create(output.copy()));
+        // AE2 falls back to the pattern icon and skips its Shift output renderer when this is null.
+        cir.setReturnValue(null);
     }
 
     @Inject(method = "addCheckedInformation", at = @At("HEAD"), cancellable = true)

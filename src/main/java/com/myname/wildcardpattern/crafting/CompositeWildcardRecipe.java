@@ -1,10 +1,7 @@
 package com.myname.wildcardpattern.crafting;
 
-import java.util.List;
-
 import appeng.api.AEApi;
 import com.myname.wildcardpattern.ModItems;
-import com.myname.wildcardpattern.item.WildcardPatternState;
 import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.crafting.IRecipe;
@@ -20,7 +17,7 @@ public class CompositeWildcardRecipe implements IRecipe {
     @Override
     public ItemStack getCraftingResult(InventoryCrafting inventory) {
         boolean foundBlankPattern = false;
-        boolean foundEmptyWildcard = false;
+        boolean foundOreFilterCard = false;
 
         for (int index = 0; index < inventory.getSizeInventory(); index++) {
             ItemStack stack = inventory.getStackInSlot(index);
@@ -31,14 +28,14 @@ public class CompositeWildcardRecipe implements IRecipe {
                 foundBlankPattern = true;
                 continue;
             }
-            if (stack.getItem() == ModItems.wildcardPattern && isEmptyWildcardPattern(stack) && !foundEmptyWildcard) {
-                foundEmptyWildcard = true;
+            if (isOreFilterCard(stack) && !foundOreFilterCard) {
+                foundOreFilterCard = true;
                 continue;
             }
             return null;
         }
 
-        if (!foundBlankPattern || !foundEmptyWildcard) {
+        if (!foundBlankPattern || !foundOreFilterCard) {
             return null;
         }
         ItemStack result = new ItemStack(ModItems.compositeWildcardPattern);
@@ -61,27 +58,8 @@ public class CompositeWildcardRecipe implements IRecipe {
         return blankPattern != null && stack.getItem() == blankPattern.getItem() && stack.getItemDamage() == blankPattern.getItemDamage();
     }
 
-    private static boolean isEmptyWildcardPattern(ItemStack stack) {
-        if (stack == null || stack.getItem() != ModItems.wildcardPattern) {
-            return false;
-        }
-        if (WildcardPatternGenerator.isGeneratedPattern(stack)) {
-            return false;
-        }
-        List<WildcardPatternEntry> inputs = WildcardPatternState.getInputEntries(stack);
-        List<WildcardPatternEntry> outputs = WildcardPatternState.getOutputEntries(stack);
-        return entriesEmpty(inputs) && entriesEmpty(outputs);
-    }
-
-    private static boolean entriesEmpty(List<WildcardPatternEntry> entries) {
-        if (entries == null || entries.isEmpty()) {
-            return true;
-        }
-        for (WildcardPatternEntry entry : entries) {
-            if (entry != null && !entry.isEmpty()) {
-                return false;
-            }
-        }
-        return true;
+    private static boolean isOreFilterCard(ItemStack stack) {
+        ItemStack card = AEApi.instance().definitions().materials().cardOreFilter().maybeStack(1).orNull();
+        return card != null && stack.getItem() == card.getItem() && stack.getItemDamage() == card.getItemDamage();
     }
 }

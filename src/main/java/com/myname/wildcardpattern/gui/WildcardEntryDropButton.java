@@ -10,9 +10,15 @@ import net.minecraft.item.ItemStack;
 public class WildcardEntryDropButton extends ButtonWidget implements IDragAndDropHandler {
 
     private final Consumer<ItemStack> dropHandler;
+    private final boolean singleItem;
 
     public WildcardEntryDropButton(Consumer<ItemStack> dropHandler) {
+        this(dropHandler, true);
+    }
+
+    public WildcardEntryDropButton(Consumer<ItemStack> dropHandler, boolean singleItem) {
         this.dropHandler = dropHandler;
+        this.singleItem = singleItem;
     }
 
     @Override
@@ -21,7 +27,7 @@ public class WildcardEntryDropButton extends ButtonWidget implements IDragAndDro
             return false;
         }
         ItemStack copy = draggedStack.copy();
-        copy.stackSize = 1;
+        if (this.singleItem) copy.stackSize = 1;
         this.dropHandler.accept(copy);
         markForUpdate();
         return true;
